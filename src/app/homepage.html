@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0b0d">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json?v=3">
+<title>Plainview — Know any stock in seconds</title>
+<meta name="description" content="Pressure-test any stock against live facts, filings, and sentiment. Invest with discipline, not FOMO.">
+<style>
+  :root{
+    --bg:#0a0b0d;--surface:#14161a;--surface2:#1a1d23;--border:#262a31;--border2:#2a2f37;
+    --text:#e8eaed;--text2:#9aa0a8;--text3:#5f656d;--green:#1fdf64;--blue:#3b9eff;--red:#ff5c5c;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  body{min-height:100vh;position:relative;overflow-x:hidden;}
+  .bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+    background-size:42px 42px;}
+  .bg-glow{position:fixed;top:-80px;left:0;right:0;height:460px;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 100% at 50% 0%,rgba(31,223,100,.15),rgba(31,223,100,.04) 45%,transparent 72%);}
+  .wrap{position:relative;z-index:1;max-width:1060px;margin:0 auto;padding:18px 20px 64px;}
+
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:54px;}
+  .brand{display:flex;align-items:center;gap:10px;}
+  .logo{width:30px;height:30px;border-radius:8px;background:var(--green);color:#0a0b0d;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;font-family:var(--mono);}
+  .brand-name{font-weight:600;letter-spacing:.04em;font-size:15px;line-height:1.1;}
+  .brand-sub{font-size:9px;letter-spacing:.2em;color:var(--text3);font-family:var(--mono);}
+  .signin{font-size:13px;color:var(--text2);border:1px solid var(--border2);border-radius:9px;padding:8px 16px;text-decoration:none;cursor:pointer;transition:border-color .15s,color .15s;}
+  .signin:hover{border-color:var(--green);color:var(--text);}
+
+  .hero{text-align:center;margin-bottom:22px;}
+  .hero h1{font-size:38px;font-weight:700;line-height:1.15;margin:0 0 10px;letter-spacing:-.02em;}
+  .hero p{font-size:16px;color:var(--text2);margin:0;}
+
+  .search{display:flex;gap:10px;max-width:560px;margin:0 auto 14px;}
+  .search-box{flex:1;display:flex;align-items:center;gap:11px;height:58px;padding:0 18px;background:rgba(20,22,26,.85);border:1.5px solid var(--green);border-radius:14px;box-shadow:0 0 0 4px rgba(31,223,100,.10);}
+  .search-box svg{flex:none;color:var(--green);}
+  .search-box input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:18px;font-family:var(--mono);text-transform:uppercase;min-width:0;}
+  .search-box input::placeholder{color:var(--text3);}
+  .btn-go{height:58px;padding:0 24px;background:var(--green);color:#0a0b0d;border:0;border-radius:14px;font-weight:600;font-size:16px;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;transition:filter .15s,transform .1s;}
+  .btn-go:hover{filter:brightness(1.08);}
+  .btn-go:active{transform:scale(.98);}
+
+  .trending{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;margin-bottom:40px;}
+  .trending .lbl{font-size:12px;color:var(--text3);}
+  .chip{font-size:12.5px;font-family:var(--mono);padding:5px 12px;background:rgba(20,22,26,.7);border:1px solid var(--border2);border-radius:8px;color:#cfd3d8;cursor:pointer;transition:border-color .15s,color .15s;}
+  .chip:hover{border-color:var(--green);color:#fff;}
+
+  .sec-h{display:flex;align-items:center;gap:9px;margin-bottom:13px;}
+  .sec-h .t{font-size:14px;font-weight:600;letter-spacing:.01em;}
+  .sec-h .m{font-size:10.5px;color:var(--text3);font-family:var(--mono);}
+  .badge-sample{font-size:9.5px;font-family:var(--mono);letter-spacing:.06em;color:var(--green);border:1px solid rgba(31,223,100,.35);border-radius:6px;padding:2px 7px;}
+
+  .picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:34px;}
+  .pick{background:rgba(20,22,26,.8);border:1px solid var(--border);border-radius:13px;padding:15px;cursor:pointer;transition:border-color .15s,transform .12s;}
+  .pick:hover{border-color:var(--green);transform:translateY(-2px);}
+  .pick-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;}
+  .pick-tkr{font-family:var(--mono);font-weight:600;font-size:15px;}
+  .pick-mv{font-size:12.5px;font-family:var(--mono);}
+  .pick-why{font-size:12px;color:var(--text2);line-height:1.5;}
+  .up{color:var(--green);}.down{color:var(--red);}.flat{color:var(--text3);}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:30px;}
+  .col-h{font-size:14px;font-weight:600;margin-bottom:12px;}
+  .col-h .c{color:var(--text3);font-weight:400;font-size:10.5px;font-family:var(--mono);}
+  .wrow{display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border-radius:9px;cursor:pointer;font-size:13px;transition:background .15s;}
+  .wrow:hover{background:var(--surface);}
+  .wrow .tk{font-family:var(--mono);font-weight:600;}
+  .wrow .rs{color:var(--text2);}
+  .wrow .vl{font-family:var(--mono);}
+  .cands{display:flex;flex-wrap:wrap;gap:7px;}
+
+  .foot{margin-top:38px;padding-top:18px;border-top:1px solid #1b1e23;text-align:center;font-size:12.5px;color:var(--text3);}
+  .foot a{color:var(--blue);text-decoration:none;cursor:pointer;}
+
+  @media (max-width:720px){
+    .hero h1{font-size:30px;}
+    .hero p{font-size:14px;}
+    .search-box input{font-size:16px;}
+    .cols{grid-template-columns:1fr;gap:26px;}
+    .topbar{margin-bottom:36px;}
+  }
+  @media (max-width:420px){
+    .search{flex-direction:column;}
+    .btn-go{width:100%;justify-content:center;}
+  }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <div class="brand-name">PLAINVIEW</div>
+        <div class="brand-sub">COMMAND CENTER</div>
+      </div>
+    </div>
+    <a class="signin" href="/login">Sign in</a>
+  </div>
+
+  <div class="hero">
+    <h1>Know any stock in seconds.</h1>
+    <p>Type a ticker — we pressure-test it against live facts, filings, and sentiment.</p>
+  </div>
+
+  <div class="search">
+    <div class="search-box">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <input id="q" placeholder="NVDA, TSLA, BTC-USD…" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Enter a ticker" inputmode="text" enterkeyhint="search">
+    </div>
+    <button class="btn-go" id="go">Analyze
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+    </button>
+  </div>
+
+  <div class="trending">
+    <span class="lbl">Trending:</span>
+    <span class="chip" data-t="NVDA">NVDA</span>
+    <span class="chip" data-t="PLTR">PLTR</span>
+    <span class="chip" data-t="BTC">BTC</span>
+    <span class="chip" data-t="HIMS">HIMS</span>
+  </div>
+
+  <div class="sec-h">
+    <span class="t">🎯 Today's top picks</span>
+    <span class="m">overnight movers</span>
+    <span class="badge-sample">SAMPLE · live scan coming soon</span>
+  </div>
+  <div class="picks">
+    <div class="pick" data-t="RKLB">
+      <div class="pick-top"><span class="pick-tkr">RKLB</span><span class="pick-mv up">▲ 6.1%</span></div>
+      <div class="pick-why">Neutron test-fire cleared overnight — launch cadence story intact.</div>
+    </div>
+    <div class="pick" data-t="HIMS">
+      <div class="pick-top"><span class="pick-tkr">HIMS</span><span class="pick-mv up">▲ 4.5%</span></div>
+      <div class="pick-why">Subscriber beat leaked pre-market — telehealth re-rate building.</div>
+    </div>
+    <div class="pick" data-t="NVDA">
+      <div class="pick-top"><span class="pick-tkr">NVDA</span><span class="pick-mv up">▲ 3.8%</span></div>
+      <div class="pick-why">Asia AI-capex headlines overnight — momentum into the open.</div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <div class="col-h">👁 Watching <span class="c">· 5</span></div>
+      <div class="wrow" data-t="RDW"><span><b class="tk">RDW</b> <span class="rs">at buy-zone</span></span><span class="vl flat">$14.20</span></div>
+      <div class="wrow" data-t="ASTS"><span><b class="tk">ASTS</b> <span class="rs">spectrum catalyst</span></span><span class="vl up">▲ 5.2%</span></div>
+      <div class="wrow" data-t="MP"><span><b class="tk">MP</b> <span class="rs">rare-earth tailwind</span></span><span class="vl flat">$31.40</span></div>
+      <div class="wrow" data-t="SOFI"><span><b class="tk">SOFI</b> <span class="rs">credit turning</span></span><span class="vl flat">$9.80</span></div>
+      <div class="wrow" data-t="IONQ"><span><b class="tk">IONQ</b> <span class="rs">quantum momentum</span></span><span class="vl down">▼ 1.4%</span></div>
+    </div>
+    <div>
+      <div class="col-h">🔍 Candidates <span class="c">· 10 · early</span></div>
+      <div class="cands">
+        <span class="chip" data-t="OKLO">OKLO</span>
+        <span class="chip" data-t="ACHR">ACHR</span>
+        <span class="chip" data-t="TEM">TEM</span>
+        <span class="chip" data-t="RXRX">RXRX</span>
+        <span class="chip" data-t="SMR">SMR</span>
+        <span class="chip" data-t="JOBY">JOBY</span>
+        <span class="chip" data-t="CLSK">CLSK</span>
+        <span class="chip" data-t="TMC">TMC</span>
+        <span class="chip" data-t="SERV">SERV</span>
+        <span class="chip" data-t="BTDR">BTDR</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    Got holdings? <a href="/login">Sign in</a> to track your portfolio, theses, and catalysts.
+  </div>
+
+</div>
+<script>
+  function go(t){
+    t = (t || '').trim().toUpperCase();
+    if (!/^[A-Z0-9.\-]{1,12}$/.test(t)) return;
+    window.location.href = '/home?ticker=' + encodeURIComponent(t);
+  }
+  document.getElementById('go').addEventListener('click', function(){ go(document.getElementById('q').value); });
+  document.getElementById('q').addEventListener('keydown', function(e){ if (e.key === 'Enter') go(this.value); });
+  document.querySelectorAll('[data-t]').forEach(function(el){
+    el.addEventListener('click', function(){ go(el.getAttribute('data-t')); });
+  });
+</script>
+</body>
+</html>

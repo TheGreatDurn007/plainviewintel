@@ -1,0 +1,24 @@
+{
+  "name": "Plainview",
+  "short_name": "Plainview",
+  "description": "Personal investing intelligence — portfolio, watchlist, SEC alerts, X-Ray",
+  "start_url": "/home",
+  "display": "standalone",
+  "background_color": "#080b0f",
+  "theme_color": "#080b0f",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

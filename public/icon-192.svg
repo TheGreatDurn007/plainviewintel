@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="34" fill="#080b0f"/>
+  <polygon points="96,22 169,58 169,134 96,170 23,134 23,58" fill="#00e676"/>
+  <text x="96" y="121" font-family="system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif" font-weight="900" font-size="72" text-anchor="middle" fill="#080b0f">P</text>
+</svg>

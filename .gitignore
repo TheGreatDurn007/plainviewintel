@@ -1,0 +1,14 @@
+.next
+node_modules
+.env
+.env.*
+.env.local
+.env*.local
+*.tmp
+out
+dist
+*.log
+
+.vercel
+scripts/radar-out.json
+scripts/radar-test.mjs
