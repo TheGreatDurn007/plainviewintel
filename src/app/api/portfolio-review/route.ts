@@ -60,7 +60,7 @@ type CatalystSummary = {
 // Cache the finished review keyed by the portfolio COMPOSITION (tickers + thesis/exit/catalyst, NOT live
 // prices) so a price tick never re-keys it, with a 24h TTL (daily refresh). Same pattern as thesis-check.
 const PR_CACHE_TTL = 24 * 60 * 60 * 1000;
-const PR_CACHE_VERSION = "v2"; // v2: trajectory/situation-aware review (ONE-BRAIN Slice 1)
+const PR_CACHE_VERSION = "v3"; // v3: date-aware prompt, filters past catalysts
 const PR_BUCKET = "plainview-state";
 function prHash(s: string): string { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
 function prStorage() { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } }); }
@@ -261,7 +261,8 @@ export async function POST(request: Request) {
   const noPositionPrompt = `The investor has no positions yet. Write 3 sentences: (1) acknowledge they are starting fresh with no holdings, (2) suggest what type of position to research first given a growth/pre-catalyst style, (3) warn them about the single biggest mistake new investors make — chasing recent winners. Be direct and specific.`;
 
   const investorCtx = buildInvestorContext(profile ? { goal: profile.goal, currency: profile.currency, deadline: profile.deadline, riskLevel: profile.riskLevel, totalValue: totalValueCad, positionCount: positions.length } : null);
-  const prompt = positions.length === 0 ? noPositionPrompt : `You are Plainview's portfolio analyst — direct, data-driven, and honest.${investorCtx ? `\n\n${investorCtx}` : ""}
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const prompt = positions.length === 0 ? noPositionPrompt : `You are Plainview's portfolio analyst — direct, data-driven, and honest. Today is ${todayStr}.${investorCtx ? `\n\n${investorCtx}` : ""}
 
 Write a portfolio health review for this investor using the live data below.
 
@@ -271,7 +272,7 @@ ${positionLines}
 WATCHLIST (considering buying):
 ${watchLines || "None."}
 
-UPCOMING CATALYSTS:
+UPCOMING CATALYSTS (ignore any with dates before today ${todayStr} — they already happened):
 ${catalystLines || "None listed."}
 
 ${liveSection ? `${liveSection}\n` : ""}Write exactly 5 sentences. Each must reference specific tickers and real numbers from the data above:

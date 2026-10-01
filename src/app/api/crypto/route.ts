@@ -121,7 +121,7 @@ function buildCryptoCard(symbol: string, coin: any) {
     { label: "Supply Inflation Risk", value: Number.isFinite(supplyPct) ? supplyPct.toFixed(0) + "% circulating" : "No max supply", status: Number.isFinite(supplyPct) ? (supplyPct > 80 ? "good" : "watch") : "bad", context: Number.isFinite(supplyPct) ? "Higher circulation means less future supply pressure" : "Uncapped supply risk" },
     { label: "Liquidity", value: Number.isFinite(volRatio) ? volRatio.toFixed(2) + "% volume/mcap" : "n/a", status: Number.isFinite(volRatio) ? (volRatio > 1 ? "good" : volRatio > .1 ? "watch" : "bad") : "watch", context: "Higher volume means easier exits" },
   ];
-  return { symbol, name: coin.name, assetType: "crypto", score: cs.score, scoreLabel: cs.score >= 7 ? "Strong" : cs.score >= 4 ? "Mixed" : "Weak", scoreComponents: cs.components, sector: "Cryptocurrency", industry: (coin.categories || []).filter(Boolean)[0] || "Digital asset", metrics, valuation };
+  return { symbol, name: coin.name, assetType: "crypto", scoreKind: "crypto" as const, score: cs.score, scoreLabel: cs.score >= 7 ? "Strong" : cs.score >= 4 ? "Mixed" : "Weak", scoreComponents: cs.components, sector: "Cryptocurrency", industry: (coin.categories || []).filter(Boolean)[0] || "Digital asset", metrics, valuation };
 }
 
 export async function GET(request: Request) {

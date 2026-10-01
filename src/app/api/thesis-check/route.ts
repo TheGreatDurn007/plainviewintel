@@ -26,6 +26,10 @@ import {
   isCryptoTicker,
   buildCryptoNewsQueries,
   CRYPTO_LENS_FRAME,
+  isCommodityTicker,
+  commodityName,
+  buildCommodityNewsQueries,
+  COMMODITY_LENS_FRAME,
   verifyClaims,
   type ThesisClaim,
   type ClaimEvidence,
@@ -67,13 +71,25 @@ const cap = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
 // deterministically: if a contradicted/unsupported verdict rests on NO genuine contradiction, downgrade
 // to the honest state — mixed (some support) or insufficient (awaiting catalyst / too thin).
 function reconcileStatus(v: ThesisCheck): ThesisCheck {
-  if (v.status !== "contradicted" && v.status !== "unsupported") return v;
-  const priceLike = /\b(dip|dips|dipped|fell|falls|fall|drop|dropped|decline[ds]?|sold[- ]off|sell[- ]?off|pull(?:ed|s)?[- ]back|slid|slips?|slumped|share price|stock price|stock (?:dips|fell|drop|slid|slips))\b/i;
-  const genuine = v.points.filter((p) => p.effect === "contradicts" && !priceLike.test(p.evidence));
-  if (genuine.length > 0) return v; // a real disconfirming fact exists → the verdict stands
-  const supports = v.points.filter((p) => p.effect === "supports").length;
-  const status = supports > 0 ? "mixed" : "insufficient"; // no genuine contradiction → not "contradicted"
-  return { ...v, status };
+  const priceLike = /\b(dip|dips|dipped|fell|falls|fall|drop|dropped|decline[ds]?|sold[- ]off|sell[- ]?off|pull(?:ed|s)?[- ]back|slid|slips?|slumped|share price|stock price|stock (?:dips|fell|drop|slid|slips)|profit[- ]?tak|rally draws|price (?:falls?|drops?|slid|slips?))\b/i;
+  if (v.status === "contradicted" || v.status === "unsupported") {
+    const genuine = v.points.filter((p) => p.effect === "contradicts" && !priceLike.test(p.evidence));
+    if (genuine.length > 0) return v;
+    const supports = v.points.filter((p) => p.effect === "supports").length;
+    const status = supports > 0 ? "mixed" : "insufficient";
+    return { ...v, status };
+  }
+  if (v.status === "mixed") {
+    const contradicts = v.points.filter((p) => p.effect === "contradicts");
+    const genuine = contradicts.filter((p) => !priceLike.test(p.evidence));
+    if (contradicts.length > 0 && genuine.length === 0) {
+      const points = v.points.map((p) =>
+        p.effect === "contradicts" && priceLike.test(p.evidence) ? { ...p, effect: "neutral" } : p
+      );
+      return { ...v, points };
+    }
+  }
+  return v;
 }
 
 // ── POLARITY + CONFIRMATION GUARD (deterministic — runs on the POINTS before they reach the card) ─────
@@ -85,17 +101,18 @@ function reconcileStatus(v: ThesisCheck): ThesisCheck {
 // applyMagnitudeGuard: correct the obvious sign/confirmation errors in CODE so one mislabeled good fact
 // can never drag the verdict down. Conservative by design — only flips on unambiguous, negation-free cues.
 function thesisIsBullish(thesis: string, price: number | null, target: number | null): boolean {
-  if (target && price && target > price * 1.01) return true;  // a target above the price = a bullish bet
-  if (target && price && target < price * 0.99) return false; // a target below = a bearish/short bet
+  if (target && price && target > price * 1.01) return true;
+  if (target && price && target < price * 0.99) return false;
   const bull = /\b(rally|rallies|rais(?:e|es|ing)|surg|soar|upside|higher|rise|rising|grow(?:th|ing)?|gain|moon|squeeze|breakout|appreciat|undervalued|multibagger|re-?rat|expand|beat|outperform|bull|long\b|accumulat|buy\b)\b/i;
-  const bear = /\b(short\b|collaps|crash|declin|downside|overvalued|bubble|bankrupt|plunge|sink|bear\b|fade|deteriorat|sell\b|avoid|puts?\b)\b/i;
+  const bear = /\b(short\b|shorting|collaps|crash|declin|downside|overvalued|bubble|bankrupt|plunge|sink|bear\b|fade|deteriorat|sell\b|avoid|puts?\b|drop|plummet|worthless|fraud|scam|dilut|zero|chapter\s*11|insolven|default\b|going\s+to\s+(?:zero|0)|will\s+(?:fall|drop|crash|decline))\b/i;
   const isBull = bull.test(thesis), isBear = bear.test(thesis);
   if (isBear && !isBull) return false;
-  return true; // default: most retail theses are long/bullish
+  if (isBull && !isBear) return true;
+  return true;
 }
 // Unambiguous GOOD-NEWS catalysts (completed/confirmed), and a negation guard so "failed to win the deal"
 // or "missed estimates" never trips them.
-const GOOD_NEWS = /\b(rais(?:ed|es)\s+(?:[\w$%.,'-]+\s+){0,3}(?:guidance|outlook|forecast|target|estimate|revenue)|beat|beats|topp?ed|tops|exceed(?:ed|s)?|surpass(?:ed|es)?|record\s+(?:revenue|results|quarter|sales|earnings|backlog)|all-time high|wins?\b|won\b|awarded|secur(?:ed|es)|signed?\b|approv(?:ed|al)|upgrad(?:ed|e)|above (?:consensus|estimates|expectations)|stronger[- ]than|better[- ]than[- ]expected|partnership|new\s+(?:contract|order|deal))\b/i;
+const GOOD_NEWS = /\b(rais(?:ed|es)\s+(?:[\w$%.,'-]+\s+){0,3}(?:guidance|outlook|forecast|target|estimate|revenue)|beat|beats|topp?ed|tops|exceed(?:ed|s)?|surpass(?:ed|es)?|record\s+(?:revenue|results|quarter|sales|earnings|backlog)|all-time high|win(?:s|ning)?\b|won\b|awarded|secur(?:ed|es)|signed?\b|approv(?:ed|al)|upgrad(?:ed|e)|above (?:consensus|estimates|expectations)|stronger[- ]than|better[- ]than[- ]expected|partnership|new\s+(?:contract|order|deal))\b/i;
 const NEGATED = /\b(no\b|not\b|fail(?:ed|s|ure)?|miss(?:ed|es)?|without|denied|reject(?:ed|s)?|cut\b|cuts\b|lower(?:ed)?|slash(?:ed)?|short of|below|warn(?:ed|ing)?|delay(?:ed|s)?|loss\b|loses|declin(?:e|ed|ing)|weak(?:er)?|disappoint)\b/i;
 // A point that cites a real dated source AND states a COMPLETED event (past-tense), with no forward modal —
 // i.e. a confirmed catalyst that was wrongly filed as "missing" (which is for UNVERIFIED downstream effects).
@@ -202,13 +219,13 @@ function strengthFromVerdict(v: ThesisCheck): number | null {
 // ---- Shared verdict cache (Supabase Storage) ----
 // A thesis-check must return the SAME verdict when re-run (Recheck), or it looks broken. The
 // evidence (Google News) rotates and serverless instances don't share memory, so we cache the
-// finished verdict in Storage (shared across all instances) for 30 min. Fail-open: any Storage
+// finished verdict in Storage (shared across all instances) for 24h. Fail-open: any Storage
 // error just falls through to a normal compute.
 const THESIS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h — a thesis verdict doesn't change intraday, so rechecks stay STABLE across a day (kills flicker); a genuinely new thesis re-keys, and the monitor re-evaluates on new evidence
 const CACHE_BUCKET = "plainview-state";
 // Bump this whenever the thesis-check prompt, lenses, or claim engine change, so old cached verdicts
 // (computed by the previous logic) are not served. Acts as a global cache-buster.
-const CACHE_VERSION = "v41"; // v41: businessScore prefers the canonical /api/xray card score (One Brain Slice 2)
+const CACHE_VERSION = "v43"; // v43: bear-thesis detection, news-unavailable sentinel, improved query stop words
 function hashStr(s: string): string { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
 function storageAdmin() { return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } }); }
 async function readVerdictCache(key: string): Promise<(Record<string, unknown> & { _ts?: number }) | null> {
@@ -450,6 +467,8 @@ export async function POST(request: Request) {
     /\b(TSX|TSXV|TSX-V|NYSE|NASDAQ|AMEX|OTC|LSE|ASX|NEO|CSE|XETRA)\b/i.test(String(body.exchange || "")) ||
     /(basic materials|gold|silver|mining|industrials|technology|healthcare|energy|financial|consumer|utilities|real estate|communication)/i.test(String(prof.sector || ""));
   const crypto = !mining.isMining && !biotech && !looksLikeStockListing && (isCryptoTicker(rawTicker) || isCryptoTicker(ticker));
+  const commodity = !mining.isMining && !biotech && !crypto && (isCommodityTicker(rawTicker) || isCommodityTicker(ticker));
+  if (commodity && !resolvedName) resolvedName = commodityName(ticker) || commodityName(rawTicker) || resolvedName;
 
   // Live news evidence — verifies "easily-Googleable" thesis claims (partnerships,
   // acquisitions, order wins, earnings figures) that the structured feed misses,
@@ -461,6 +480,8 @@ export async function POST(request: Request) {
     ? buildBiotechNewsQueries(resolvedName, ticker)
     : crypto
     ? buildCryptoNewsQueries(resolvedName, ticker)
+    : commodity
+    ? buildCommodityNewsQueries(resolvedName, ticker)
     : [];
   // General/catalyst queries FIRST (always relevant), lens queries (drill/assay/PEA — useful for an
   // explorer, useless for a streamer/producer) LAST, so baseline coverage runs before the niche ones.
@@ -566,6 +587,7 @@ export async function POST(request: Request) {
   if (mag.fact) facts.push(mag.fact);
   if (earnings) facts.push(`Next earnings: ${earnings}`);
   if (allNews.length) facts.push(`Recent headlines:\n${allNews.slice(0, 6).map((h) => `- ${h}`).join("\n")}`);
+  if (!allNews.length && !newsEvidence.length) facts.push("NEWS: no headlines could be retrieved — news sources may be temporarily unavailable. Base your assessment on the other evidence (filings, financials, technicals). Do NOT interpret empty news as 'no developments'.");
   if (newsEvidence.length) {
     facts.push(
       `Live published news (real article headlines retrieved just now from Google News — these ARE published evidence; a headline that states a claim verifies it):\n${newsEvidence
@@ -594,7 +616,7 @@ THE FACTS (ground truth — Level 1, highest authority):
 ${facts.join("\n\n") || "No facts retrieved — say so and return status insufficient."}
 ${body.priorKnowledge ? `\nPLAINVIEW'S OWN EARLIER NOTES (context only — NOT evidence):\nThese are Plainview-generated summaries (prior Intel/X-Ray briefs and filing explanations), not independent sources. Use them ONLY to understand what was previously discussed. NEVER cite them as a fact, and NEVER let them support or refute the thesis — that would be circular (Plainview proving Plainview). Every evidence point you cite must come from THE FACTS above, not from these notes.\n${body.priorKnowledge}` : ""}
 
-${mining.isMining ? `${MINING_LENS_FRAME}\n\n` : biotech ? `${BIOTECH_LENS_FRAME}\n\n` : crypto ? `${CRYPTO_LENS_FRAME}\n\n` : ""}Test the thesis against the facts. Pull 3-5 SPECIFIC evidence points (each with its real number/detail), and tag each by how it relates to THIS thesis. FORMAT each evidence point as the plain fact followed by its source and date in parentheses — e.g. \`GR Silver reports 45.1m at 1,623 g/t Ag at San Marcial (Newswire, 2026-05-19)\`. Do NOT prefix a point with "Headline:", "News:", or "Source:".
+${mining.isMining ? `${MINING_LENS_FRAME}\n\n` : biotech ? `${BIOTECH_LENS_FRAME}\n\n` : crypto ? `${CRYPTO_LENS_FRAME}\n\n` : commodity ? `${COMMODITY_LENS_FRAME}\n\n` : ""}Test the thesis against the facts. Pull 3-5 SPECIFIC evidence points (each with its real number/detail), and tag each by how it relates to THIS thesis. FORMAT each evidence point as the plain fact followed by its source and date in parentheses — e.g. \`GR Silver reports 45.1m at 1,623 g/t Ag at San Marcial (Newswire, 2026-05-19)\`. Do NOT prefix a point with "Headline:", "News:", or "Source:".
 - "supports" — a real, sourced fact that backs the thesis, INCLUDING a confirmed-but-announced/planned/in-progress catalyst. If a source confirms the thesis's catalyst EXISTS (a facility announced, a deal signed, a partnership, a metric, a filing), that is "supports" — cite it (note "announced/planned" if it hasn't completed yet). Do NOT downgrade a confirmed catalyst to "missing" just because the thesis phrases it as already-happening ("ramps") while the source shows it announced/planned ("plans to start") — the catalyst is REAL, so it supports; the unproven EFFECT is what's missing (next bullet).
 - "contradicts" — a fact that works against the thesis.
 - "missing" — a DOWNSTREAM EFFECT or OUTCOME the thesis depends on that NO source confirms (e.g. the announced factory will LIFT MARGINS, the deal will ACCELERATE REVENUE, the catalyst will DRIVE the rally), OR a premise the thesis cites that appears nowhere in the data (e.g. "insider buying" with no filing). This means unverified/absent, NOT disproven — and NOT a real announced catalyst (that is "supports"). The single most load-bearing "missing" item is usually the Critical Unknown. HONESTY ABOUT RETRIEVAL: a "missing" point is a LIMIT OF WHAT WE RETRIEVED, not proof the thing doesn't exist — phrase it that way. Write "No source found here confirming X" / "We couldn't verify X in the available facts", NEVER "X did not happen" or "no source confirms X exists" (we may simply not have fetched it). Our retrieval window for recent news is short; a real but older catalyst can be absent here yet still true — so stay humble in the wording.

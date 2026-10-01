@@ -59,6 +59,10 @@ function num(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+function avg(vals: (number | null)[]): number | null {
+  const valid = vals.filter((v): v is number => v !== null);
+  return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+}
 
 function sideBlock(
   label: string,
@@ -108,15 +112,27 @@ function extractVerdict(raw: string): Verdict | null {
       const s = (o || {}) as Record<string, unknown>;
       return { thesis: num(s.thesis), catalyst: num(s.catalyst), momentum: num(s.momentum), risk: num(s.risk), opportunity: num(s.opportunity) };
     };
+    const fromScores = parseScores(j.fromScores);
+    const intoScores = parseScores(j.intoScores);
+    let lean = String(j.lean || "neutral").toLowerCase();
+    const validLeans = ["reallocate", "stay", "split", "tooclose", "neutral"];
+    if (!validLeans.includes(lean)) lean = "neutral";
+    const fromAvg = avg([fromScores.thesis, fromScores.catalyst, fromScores.momentum, fromScores.risk, fromScores.opportunity]);
+    const intoAvg = avg([intoScores.thesis, intoScores.catalyst, intoScores.momentum, intoScores.risk, intoScores.opportunity]);
+    if (fromAvg !== null && intoAvg !== null) {
+      const diff = intoAvg - fromAvg;
+      if (lean === "reallocate" && diff < -1) lean = "stay";
+      else if (lean === "stay" && diff > 2) lean = "reallocate";
+    }
     return {
       fromTarget: num(j.fromTarget),
       intoTarget: num(j.intoTarget),
       fromRead: String(j.fromRead || ""),
       intoRead: String(j.intoRead || ""),
       verdict: String(j.verdict || ""),
-      lean: String(j.lean || "neutral"),
-      fromScores: parseScores(j.fromScores),
-      intoScores: parseScores(j.intoScores),
+      lean,
+      fromScores,
+      intoScores,
     };
   } catch {
     return null;

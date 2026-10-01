@@ -636,13 +636,10 @@ export async function GET(request: Request) {
         else if ((price - aggHigh) / aggHigh <= 0.15) patience = "Medium";
         else                          patience = "High";
 
-        // Cap every displayed band at the current price — never show a target above where it trades.
-        const cap = (x: number) => (price != null && price > 0 && x > price) ? price : x;
-
         buyZone = {
-          aggressive: [r2(cap(aggLow)), r2(cap(aggHigh))],
-          ideal: [r2(cap(idealLow)), r2(cap(idealHigh))],
-          deepValue: r2(cap(deepValue)),
+          aggressive: [r2(aggLow), r2(aggHigh)],
+          ideal: [r2(idealLow), r2(idealHigh)],
+          deepValue: r2(deepValue),
           setup,
           patience,
           belowSupport,
@@ -715,6 +712,7 @@ export async function GET(request: Request) {
       targetHighPrice:         analyst?.targetHighPrice  ?? v7fb?.targetHighPrice         ?? finnTarget?.high ?? null,
       numberOfAnalystOpinions: analyst?.numberOfAnalystOpinions ?? v7fb?.numberOfAnalystOpinions ?? null,
       beta:                    resolvedBeta,
+      betaBenchmark:           /\.(TO|V|CN|NE|TSX)$/i.test(symbol) ? "TSX" : "S&P 500",
       shortPercentOfFloat: shortPercentVal,
       // Volume from chart data — works for all stocks including small caps
       avgVolume:     tech?.avgVolume     ?? taData?.avgVolume     ?? null,

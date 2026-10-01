@@ -190,21 +190,40 @@ export type ShortInterestData = {
  * Canadian-suffixed tickers (.TO etc.) where the bare symbol could collide with a US company.
  */
 export async function fetchCompanyDescription(ticker: string): Promise<string | null> {
-  if (/\.(TO|V|CN|NE|TSX)$/i.test(ticker)) return null;
+  if (isCommodityTicker(ticker)) return null;
+  const sym = ticker.replace(/\..*$/, "");
+
+  // Try stockanalysis.com first (fast, works for most US stocks)
+  if (!/\.(TO|V|CN|NE|TSX)$/i.test(ticker)) {
+    try {
+      const res = await fetch(
+        `https://stockanalysis.com/api/symbol/s/${encodeURIComponent(sym)}/overview`,
+        { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }, next: { revalidate: 86400 } }
+      );
+      if (res.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data: any = await res.json();
+        const desc = String(data?.data?.description || "").trim();
+        if (desc) return desc.length > 340 ? desc.slice(0, 340).replace(/\s+\S*$/, "") + "…" : desc;
+      }
+    } catch { /* fall through to Yahoo */ }
+  }
+
+  // Fallback: Yahoo Finance assetProfile (works for US + CAD + international)
   try {
-    const sym = ticker.replace(/\..*$/, "");
-    const res = await fetch(
-      `https://stockanalysis.com/api/symbol/s/${encodeURIComponent(sym)}/overview`,
-      { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }, next: { revalidate: 86400 } }
-    );
-    if (!res.ok) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await res.json();
-    const desc = String(data?.data?.description || "").trim();
-    if (!desc) return null;
-    // Keep ~2 sentences so it grounds without bloating the prompt.
-    return desc.length > 340 ? desc.slice(0, 340).replace(/\s+\S*$/, "") + "…" : desc;
-  } catch { return null; }
+    for (const host of ["query1", "query2"]) {
+      const res = await fetch(
+        `https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=assetProfile`,
+        { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Plainview/1.0" }, next: { revalidate: 86400 } }
+      );
+      if (!res.ok) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json: any = await res.json();
+      const desc = String(json?.quoteSummary?.result?.[0]?.assetProfile?.longBusinessSummary || "").trim();
+      if (desc) return desc.length > 340 ? desc.slice(0, 340).replace(/\s+\S*$/, "") + "…" : desc;
+    }
+  } catch { /* silent */ }
+  return null;
 }
 
 /**
@@ -238,6 +257,7 @@ export async function fetchShortInterest(ticker: string): Promise<ShortInterestD
   const empty: ShortInterestData = { shortShares: null, shortPctFloat: null, daysToCover: null, shortPriorMonth: null };
   // US-only source — skip Canadian-suffixed tickers so the stripped symbol doesn't collide with a US security.
   if (/\.(TO|V|CN|NE)$/i.test(ticker)) return empty;
+  if (isCommodityTicker(ticker)) return empty;
   try {
     const res = await fetch(
       `https://stockanalysis.com/api/symbol/s/${encodeURIComponent(ticker.replace(/\..*$/, ""))}/statistics`,
@@ -397,16 +417,30 @@ const SEC_HEADERS = { "User-Agent": "Plainview investing tool plainview@dar-fish
 type SecRow = { val: number; fp?: string; form?: string; end?: string; start?: string };
 const SEC_FORMS = new Set(["10-Q", "10-K", "20-F", "40-F", "6-K"]);
 
+type TickerMapEntry = { cik_str: number; ticker: string };
+let _tickerMapPromise: Promise<Record<string, TickerMapEntry>> | null = null;
+let _tickerMapTs = 0;
+function getTickerMap(): Promise<Record<string, TickerMapEntry>> {
+  if (_tickerMapPromise && Date.now() - _tickerMapTs < 3600_000) return _tickerMapPromise;
+  _tickerMapPromise = fetch("https://www.sec.gov/files/company_tickers.json", { headers: SEC_HEADERS, next: { revalidate: 3600 } })
+    .then(r => { if (!r.ok) throw new Error("SEC ticker map " + r.status); return r.json() as Promise<Record<string, TickerMapEntry>>; })
+    .catch(() => { _tickerMapPromise = null; return {} as Record<string, TickerMapEntry>; });
+  _tickerMapTs = Date.now();
+  return _tickerMapPromise;
+}
+function cikFromMap(map: Record<string, TickerMapEntry>, ticker: string): string | null {
+  if (/\.(TO|V|CN|NE|TSX)$/i.test(ticker)) return null;
+  const clean = ticker.replace(/\..*$/, "").toUpperCase();
+  const row = Object.values(map).find(t => t.ticker.toUpperCase() === clean);
+  return row ? String(row.cik_str).padStart(10, "0") : null;
+}
+
 export async function fetchCashRunwaySec(ticker: string): Promise<CashRunway> {
   const empty: CashRunway = { cash: null, opCashTtm: null, runwayMonths: null };
   try {
-    const tickerRes = await fetch("https://www.sec.gov/files/company_tickers.json", { headers: SEC_HEADERS, next: { revalidate: 3600 } });
-    if (!tickerRes.ok) return empty;
-    const tickers = await tickerRes.json() as Record<string, { cik_str: number; ticker: string }>;
-    const clean = ticker.replace(/\..*$/, "").toUpperCase();
-    const row = Object.values(tickers).find((t) => t.ticker.toUpperCase() === clean);
-    if (!row) return empty;
-    const cik = String(row.cik_str).padStart(10, "0");
+    const tickerMap = await getTickerMap();
+    const cik = cikFromMap(tickerMap, ticker);
+    if (!cik) return empty;
     const get = async (ns: string, concept: string): Promise<SecRow[]> => {
       try {
         const r = await fetch(`https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/${ns}/${concept}.json`, { headers: SEC_HEADERS, next: { revalidate: 3600 } });
@@ -548,6 +582,7 @@ export async function fetchAnalystTarget(
   currentPrice?: number | null
 ): Promise<AnalystTargets> {
   const NULL_RESULT: AnalystTargets = { mean: null, high: null, low: null, sources: 0 };
+  if (isCommodityTicker(ticker)) return { ...NULL_RESULT, stale: false } as AnalystTargets;
 
   // Fetch all three sources in parallel; none is allowed to block the others.
   const [yahooResult, saTarget, mbTarget] = await Promise.allSettled([
@@ -664,11 +699,42 @@ const CRYPTO_NAMES: Record<string, string> = {
   FLR:"Flare",KAS:"Kaspa",TRX:"Tron",RENDER:"Render",ETC:"Ethereum Classic",IMX:"Immutable X",
 };
 
+const COMMODITY_NAMES: Record<string, string> = {
+  SI:"silver",GC:"gold",CL:"crude oil",NG:"natural gas",HG:"copper",PL:"platinum",PA:"palladium",
+  ZW:"wheat",ZC:"corn",ZS:"soybeans",ZL:"soybean oil",ZM:"soybean meal",KC:"coffee",SB:"sugar",
+  CT:"cotton",CC:"cocoa",OJ:"orange juice",HO:"heating oil",RB:"gasoline",BZ:"brent crude",
+};
+
+export function isCommodityTicker(sym: string | null | undefined): boolean {
+  const s = String(sym || "").toUpperCase();
+  if (!/=F$/i.test(s)) return false;
+  const base = s.replace(/=F$/i, "");
+  return COMMODITY_NAMES.hasOwnProperty(base);
+}
+
+export function commodityName(sym: string): string | null {
+  const base = String(sym).toUpperCase().replace(/=F$/i, "");
+  return COMMODITY_NAMES[base] || null;
+}
+
+export function buildCommodityNewsQueries(name: string | null, ticker: string): string[] {
+  const commodity = commodityName(ticker) || String(name || ticker).replace(/=F$/i, "");
+  if (!commodity) return [];
+  return [
+    `${commodity} futures price forecast`,
+    `${commodity} supply demand inventory`,
+  ];
+}
+
 function newsSearchQuery(ticker: string): string {
   const cryptoMatch = ticker.match(/^([A-Z0-9]+)-(USD|CAD)$/i);
   if (cryptoMatch) {
     const base = cryptoMatch[1].toUpperCase();
     return CRYPTO_NAMES[base] || `${base} crypto`;
+  }
+  if (/=F$/i.test(ticker)) {
+    const cn = commodityName(ticker);
+    if (cn) return `${cn} futures`;
   }
   const warrantMatch = ticker.match(/^([A-Z]+)[.\-](WS|WT|WR|RT)$/i);
   if (warrantMatch) return warrantMatch[1].toUpperCase();
@@ -677,9 +743,11 @@ function newsSearchQuery(ticker: string): string {
 
 export async function fetchRecentNews(ticker: string): Promise<string[]> {
   const searchTicker = newsSearchQuery(ticker);
-  // For Google News, append "stock" for short/ambiguous tickers to avoid car/movie/brand noise
+  // For Google News, append "stock" for short/ambiguous tickers to avoid car/movie/brand noise.
+  // Commodity futures already have a human-readable query from newsSearchQuery, so skip "stock".
   const baseTicker = ticker.replace(/[.\-].*$/, "").toUpperCase();
-  const googleQuery = baseTicker.length <= 4 ? `${searchTicker} stock` : searchTicker;
+  const isFutures = /=F$/i.test(ticker);
+  const googleQuery = isFutures ? searchTicker : (baseTicker.length <= 4 ? `${searchTicker} stock` : searchTicker);
   // Run both sources in parallel — neither waits for the other
   const [yahooLines, googleLines] = await Promise.allSettled([
     // --- Yahoo Finance ---
@@ -760,11 +828,13 @@ export async function fetchRecentNews(ticker: string): Promise<string[]> {
  * Drop-in replacement for fetchRecentNews() at every call site that has a name.
  */
 export async function fetchNewsForTicker(ticker: string, companyName?: string | null): Promise<string[]> {
-  const byTicker = await fetchRecentNews(ticker).catch(() => [] as string[]);
   const baseSymbol = ticker.replace(/[.\-].*$/, "").toUpperCase();
-  if (!companyName || companyName.toUpperCase() === baseSymbol) return byTicker;
-  const byName = await fetchRecentNews(companyName).catch(() => [] as string[]);
-  // Merge newest-first, deduplicate by first 40 chars of headline
+  const needName = companyName && companyName.toUpperCase() !== baseSymbol;
+  const [byTicker, byName] = await Promise.all([
+    fetchRecentNews(ticker).catch(() => [] as string[]),
+    needName ? fetchRecentNews(companyName!).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+  ]);
+  if (!byName.length) return byTicker;
   return [...new Map([...byTicker, ...byName].map(l => [l.slice(0, 40), l])).values()];
 }
 
@@ -1140,16 +1210,11 @@ function extractSubstantiveSentences(text: string, maxChars: number): string | n
 
 export async function fetchSecSignals(ticker: string): Promise<SecSignal[]> {
   if (/\.(TO|V|CN|NE|TSX)$/i.test(ticker)) return [];
+  if (isCommodityTicker(ticker)) return [];
   try {
-    const tickerRes = await fetch("https://www.sec.gov/files/company_tickers.json", {
-      headers: SEC_HEADERS, next: { revalidate: 3600 },
-    });
-    if (!tickerRes.ok) return [];
-    const tickerMap = await tickerRes.json() as Record<string, { cik_str: number; ticker: string }>;
-    const clean = ticker.replace(/\..*$/, "").toUpperCase();
-    const match = Object.values(tickerMap).find(t => t.ticker.toUpperCase() === clean);
-    if (!match) return [];
-    const cik = String(match.cik_str).padStart(10, "0");
+    const tickerMap = await getTickerMap();
+    const cik = cikFromMap(tickerMap, ticker);
+    if (!cik) return [];
 
     const subRes = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
       headers: SEC_HEADERS, cache: "no-store",
@@ -1821,6 +1886,10 @@ const NEWS_QUERY_STOP = new Set([
   "high", "margin", "market", "growth", "revenue", "cash", "combination", "order", "backlog",
   "should", "pending", "holds", "booked", "posted", "now", "while", "expand", "company",
   "stock", "shares", "share", "year", "quarter", "from", "into", "over",
+  "ceo", "cfo", "coo", "cto", "sec", "fda", "epa", "doj", "ftc", "fed", "ipo", "spac",
+  "etf", "reit", "eps", "ebitda", "gaap", "non", "pro", "forma", "yoy", "qoq", "ttm",
+  "usa", "nyse", "nasdaq", "tsx", "otc", "per", "net", "pre", "new", "all", "inc", "ltd",
+  "corp", "may", "can", "has", "had", "will", "are", "was", "but", "not", "also",
 ]);
 
 export function buildNewsQueries(name: string | null, ticker: string, thesis: string): string[] {
@@ -2174,13 +2243,10 @@ export async function fetchSecFtsCorroboration(phrase: string): Promise<string |
 // Resolve a US ticker to its zero-padded CIK via the EDGAR ticker map (cached 1h). Null for
 // non-US/unlisted symbols. Reusable — the same lookup fetchSecSignals/fetchCashRunwaySec do inline.
 export async function tickerToCik(ticker: string): Promise<string | null> {
+  if (isCommodityTicker(ticker)) return null;
   try {
-    const res = await fetch("https://www.sec.gov/files/company_tickers.json", { headers: SEC_HEADERS, next: { revalidate: 3600 } });
-    if (!res.ok) return null;
-    const map = await res.json() as Record<string, { cik_str: number; ticker: string }>;
-    const clean = ticker.replace(/\..*$/, "").toUpperCase();
-    const row = Object.values(map).find((t) => t.ticker.toUpperCase() === clean);
-    return row ? String(row.cik_str).padStart(10, "0") : null;
+    const map = await getTickerMap();
+    return cikFromMap(map, ticker);
   } catch { return null; }
 }
 
@@ -2194,6 +2260,7 @@ const CATALYST_KEYWORDS = ["grant", "award", "contract", "funding", "partnership
 // "no source confirms" miss that the 30-day recent-filings window and recent-news-only retrieval cause.
 // Ungated, capped, fail-open, $0 (EDGAR's free FTS API — no LLM).
 export async function fetchThesisEdgarEvidence(ticker: string, name: string | null, thesis: string): Promise<string[]> {
+  if (isCommodityTicker(ticker)) return [];
   const t = (thesis || "").toLowerCase();
   const keywords = CATALYST_KEYWORDS.filter((k) => t.includes(k)).slice(0, 2);
   if (!keywords.length) return []; // no confirmable catalyst noun → nothing distinctive to search
@@ -2343,6 +2410,18 @@ CRYPTO SKEPTICISM (apply this hard — it is where most crypto theses are weak):
  - Could a competitor (e.g. XLM vs XRP) capture the same use case?
 "The financial system is modernizing toward what holders envision" is a narrative, NOT verified token demand — treat it as unproven unless the evidence shows real, token-specific adoption or flows. Only state ETF flows, regulatory status, or adoption figures that appear in the cited evidence — never invent them.`;
 
+export const COMMODITY_LENS_FRAME = `COMMODITY LENS — judge this as a commodity futures contract, NOT a stock. There are no earnings, revenues, margins, insiders, analyst price targets, or "business quality" — do not look for them or penalize their absence. What matters, in order:
+1. SUPPLY/DEMAND FUNDAMENTALS — mine production, refinery output, industrial consumption, inventory drawdowns/builds (COMEX, LME, SHFE warehouses), recycling supply. These are the load-bearing facts.
+2. MACRO & MONETARY — real interest rates, USD strength, central bank buying (for gold/silver), inflation expectations, energy costs (for industrial metals).
+3. INVENTORY & WAREHOUSE DATA — COMEX registered/eligible, LME on-warrant, SHFE stocks. Falling inventories with rising demand = structural deficit.
+4. GEOPOLITICAL & REGULATORY — sanctions, export bans, tariffs, green-energy mandates (for copper/silver/lithium), OPEC decisions (for oil).
+5. SEASONAL & TECHNICAL — seasonal patterns, contango/backwardation structure, speculative positioning (COT data).
+COMMODITY SKEPTICISM: a supply narrative is NOT automatically bullish for the price — new supply can come online, demand substitution can occur, and paper markets can diverge from physical. Pressure-test:
+ - Is the deficit STRUCTURAL (multi-year underinvestment) or CYCLICAL (temporary disruption)?
+ - Are inventory draws real depletion or just warehouse relocation?
+ - Is the demand thesis (e.g. solar panels for silver) already priced in at current levels?
+Price action alone is NOT evidence of supply/demand fundamentals — a rally can be speculative and a decline can be profit-taking, not demand destruction.`;
+
 // ---- Universal asset profile (Phase 1) ----
 // One place that turns an asset into { type, stage, label } by reusing the existing detectors.
 // The LABEL is a one-line "what this is + what its thesis depends on", surfaced across features so
@@ -2352,7 +2431,7 @@ export type AssetProfile = { type: string; stage: string; label: string };
 
 export function getAssetProfile(input: {
   name?: string | null; sector?: string | null; industry?: string | null; description?: string | null;
-  isETF?: boolean; isCrypto?: boolean;
+  isETF?: boolean; isCrypto?: boolean; isCommodity?: boolean;
   epsVal?: number | null; opCashflow?: number | null; revTtm?: number | null; revGrowth?: number | null; netCash?: number | null;
 }): AssetProfile {
   const eps = input.epsVal ?? null, ocf = input.opCashflow ?? null, rev = input.revTtm ?? null, growth = input.revGrowth ?? null, nc = input.netCash ?? null;
@@ -2364,6 +2443,7 @@ export function getAssetProfile(input: {
   const leveraged = nc != null && nc < 0;
 
   if (input.isCrypto) return { type: "crypto", stage: "network", label: "Crypto asset — judged on adoption, liquidity, regulation/ETF flow & catalysts, not business fundamentals." };
+  if (input.isCommodity) return { type: "commodity", stage: "futures", label: "Commodity futures contract — judged on supply/demand fundamentals, inventory levels, production trends, macro drivers & seasonal patterns, not company fundamentals." };
   if (input.isETF) return { type: "etf", stage: "basket", label: "ETF / passive basket — judged on holdings, concentration, fees & macro exposure, not single-company fundamentals." };
 
   const mining = classifyMining({ name: input.name, sector: input.sector, industry: input.industry, description: input.description });
@@ -2635,6 +2715,7 @@ export type SignalBundle = {
   secSignals: SecSignal[]; // structured filings (form/signal/summary) — for the brief's material-change radar
   filingFacts: FilingFact[]; // structured DD from 10-K/10-Q (filing_insights table — tier-1)
   btc: number | null;
+  newsUnavailable?: boolean;
   // Per-signal provenance for the NEXUS judgment layer to cite sources and reconcile across surfaces.
   sources: Record<string, SignalProvenance>;
 };
@@ -2693,6 +2774,7 @@ export async function gatherSignals(
 
   const asOf = new Date().toISOString().slice(0, 10);
   const secFilings = formatSecSignals(secSignals);
+  const newsUnavailable = need("news") && baseNews.length === 0;
   return {
     ticker,
     asOf,
@@ -2708,6 +2790,7 @@ export async function gatherSignals(
     secSignals,
     filingFacts,
     btc,
+    ...(newsUnavailable ? { newsUnavailable: true } : {}),
     sources: {
       financials: { source: "Yahoo financials", asOf },
       technicals: { source: "Yahoo technicals", asOf },

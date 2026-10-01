@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { fetchShortInterest, classifyMining, classifyBiotech, computeCashRunway, getAssetProfile, isCryptoTicker, writeTickerMemory } from "@/lib/market-context";
+import { fetchShortInterest, classifyMining, classifyBiotech, computeCashRunway, getAssetProfile, isCryptoTicker, isCommodityTicker, writeTickerMemory } from "@/lib/market-context";
 import { computePreRevScore } from "@/lib/prerev-score";
 import { logUsage } from "@/lib/usage-log";
 
@@ -29,6 +29,7 @@ type SecFundamentals = {
   forwardPE?: number | null;
   pegRatio?: number | null;
   evToEbitda?: number | null;
+  dividendYield?: number | null;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +73,7 @@ function serviceSupabase() {
 
 // Bump to invalidate all cached SEC fundamentals at once (e.g. after fixing the
 // ticker-collision bug that cached the wrong company's data for some .TO tickers).
-const SEC_CACHE_VERSION = "v18"; // bumped: expanded investment concept lookups for universal net cash accuracy
+const SEC_CACHE_VERSION = "v20"; // bumped: dividendYield + evToEbitda now carried through SEC→Yahoo merge
 
 async function getCachedSec(symbol: string): Promise<SecFundamentals | null> {
   try {
@@ -628,8 +629,8 @@ async function fetchYahooFundamentals(symbol: string): Promise<SecFundamentals |
   // Try financialData first (fast, works for large-caps), then fall back to
   // statement history modules which work for Canadian/OTC/international stocks
   const moduleSets = [
-    "financialData,defaultKeyStatistics,incomeStatementHistory,incomeStatementHistoryQuarterly",
-    "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,defaultKeyStatistics",
+    "financialData,defaultKeyStatistics,summaryDetail,incomeStatementHistory,incomeStatementHistoryQuarterly",
+    "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,defaultKeyStatistics,summaryDetail",
   ];
 
   for (const modules of moduleSets) {
@@ -672,6 +673,8 @@ async function fetchYahooFundamentals(symbol: string): Promise<SecFundamentals |
         const forwardPE = n(ks.forwardPE?.raw);
         const pegRatio = n(ks.pegRatio?.raw);
         const evToEbitda = n(ks.enterpriseToEbitda?.raw);
+        const sd = r.summaryDetail || {};
+        const yahDividendYield = n(sd.dividendYield?.raw) ?? n(sd.trailingAnnualDividendYield?.raw);
 
         // Derive TTM revenue by summing 4 most recent quarters (more accurate than
         // Yahoo's pre-computed totalRevenue which can be stale for large-caps like NVDA)
@@ -720,7 +723,7 @@ async function fetchYahooFundamentals(symbol: string): Promise<SecFundamentals |
         // Accept partial data — even gross margin alone is useful for small-cap TSX-V stocks
         const hasAny = revenueTtm || totalCash || grossMargin !== null || eps !== null || sharesOutstanding;
         if (!hasAny) continue;
-        return { revenueTtm, revGrowth, grossMargin, totalCash, totalDebt: totalDebt ?? 0, netCash, sharesOutstanding, opCashflow, eps, operatingEps: null, roe, roa, freeCashflow, insiderOwnership, institutionalOwnership, beta, forwardPE, pegRatio, evToEbitda };
+        return { revenueTtm, revGrowth, grossMargin, totalCash, totalDebt: totalDebt ?? 0, netCash, sharesOutstanding, opCashflow, eps, operatingEps: null, roe, roa, freeCashflow, insiderOwnership, institutionalOwnership, beta, forwardPE, pegRatio, evToEbitda, dividendYield: yahDividendYield };
       } catch { continue; }
     }
   }
@@ -966,6 +969,7 @@ function buildXrayResult(
   const insiderOwnership = sec?.insiderOwnership ?? null;
   const institutionalOwnership = sec?.institutionalOwnership ?? null;
   const beta = sec?.beta ?? null;
+  const dividendYield = n(v7?.trailingAnnualDividendYield) ?? n(v7?.dividendYield) ?? sec?.dividendYield ?? null;
   const forwardPE = sec?.forwardPE ?? null;
   const pegRatio = sec?.pegRatio ?? null;
   const evToEbitda = sec?.evToEbitda ?? null;
@@ -977,6 +981,7 @@ function buildXrayResult(
   const score = _bq.score; // number | null
   const scoreUnavailable = score == null;
   const scoreComponents = _bq.components;
+  const scorePillarCount = _bq.count;
 
   // ── Simple DCF fair value — deterministic, $0, no AI ──────────────────────
   // 5-year projection of FCF → terminal value → discount → equity per share.
@@ -1059,10 +1064,12 @@ function buildXrayResult(
   const scoreKind: "prerev" | "stock" = _preRev ? "prerev" : "stock";
 
 
+  const ccy = /\.(TO|V|CN|NE|TSX)$/i.test(symbol) ? "CAD" : "USD";
   return {
     symbol,
     name,
     source,
+    currency: ccy,
     score: finalScore,
     scoreComponents: finalComponents,
     scoreKind,
@@ -1077,7 +1084,7 @@ function buildXrayResult(
     earlyStageNote: earlyStage
       ? "Early-stage / pre-revenue — this score reflects current fundamentals; for a pre-commercial company weigh runway, milestones & catalysts more heavily."
       : null,
-    assetProfile: getAssetProfile({ name, sector, industry, description: null, isCrypto: isCryptoTicker(symbol), epsVal, opCashflow, revTtm: realRevTtm, revGrowth: sec?.revGrowth ?? null, netCash }),
+    assetProfile: getAssetProfile({ name, sector, industry, description: null, isCrypto: isCryptoTicker(symbol), isCommodity: isCommodityTicker(symbol), epsVal, opCashflow, revTtm: realRevTtm, revGrowth: sec?.revGrowth ?? null, netCash }),
     miningCommodity: mining.commodity,
     miningRunway,
     scoreUnavailable: finalScoreUnavailable,
@@ -1089,9 +1096,11 @@ function buildXrayResult(
       ? "Clinical-stage biotech — judged on pipeline, trial readouts & runway, not earnings"
       : scoreUnavailable
       ? "Not enough fundamental data to score this name — showing price & identity only."
+      : (scorePillarCount < 3 && !_preRev)
+      ? `Score based on ${scorePillarCount} of 3 pillars — some financial data unavailable.`
       : null,
     metrics: [
-      price != null && { label: "Current Price", value: `$${price.toFixed(2)}`, status: "good" },
+      price != null && { label: "Current Price", value: `${ccy === "CAD" ? "C$" : "$"}${price.toFixed(2)}`, status: "good" },
       sec?.revGrowth != null && { label: "Revenue Trend", value: `YoY ${sec.revGrowth >= 0 ? "+" : ""}${(sec.revGrowth * 100).toFixed(1)}%`, status: sec.revGrowth > 0 ? "good" : sec.revGrowth > -0.1 ? "watch" : "bad" },
       revTtm != null && { label: "Revenue TTM", value: mny(revTtm), status: revTtm > 1e6 ? "good" : "watch" },
       netCash != null && { label: "Net Cash", value: mny(netCash), status: netCash >= 0 ? "good" : "bad" },
@@ -1111,9 +1120,10 @@ function buildXrayResult(
       shares != null && { label: "Shares Outstanding", value: shares.toLocaleString("en", { maximumFractionDigits: 0 }), status: "watch" as const },
       insiderOwnership != null && insiderOwnership > 0 && { label: "Insider Ownership", value: `${(insiderOwnership * 100).toFixed(1)}%`, status: insiderOwnership >= 0.10 ? "good" as const : insiderOwnership >= 0.03 ? "watch" as const : "bad" as const, context: insiderOwnership >= 0.10 ? "Strong insider alignment" : insiderOwnership >= 0.03 ? "Moderate insider stake" : "Low insider skin in the game" },
       institutionalOwnership != null && institutionalOwnership > 0 && { label: "Institutional Ownership", value: `${(institutionalOwnership * 100).toFixed(1)}%`, status: institutionalOwnership >= 0.50 ? "good" as const : institutionalOwnership >= 0.20 ? "watch" as const : "watch" as const, context: institutionalOwnership >= 0.50 ? "Heavy institutional interest" : "Some institutional backing" },
-      beta != null && { label: "Beta", value: beta.toFixed(2), status: (beta > 0.5 && beta < 1.5) ? "good" as const : (beta >= 1.5 && beta < 2.5) ? "watch" as const : "bad" as const, context: beta < 0.5 ? "Very low volatility vs market" : beta < 1.5 ? "Moves roughly with market" : beta < 2.5 ? "More volatile than market" : "Highly volatile" },
+      beta != null && { label: "Beta", value: beta.toFixed(2), status: (beta > 0.5 && beta < 1.5) ? "good" as const : (beta >= 1.5 && beta < 2.5) ? "watch" as const : "bad" as const, context: (beta < 0.5 ? "Very low volatility vs market" : beta < 1.5 ? "Moves roughly with market" : beta < 2.5 ? "More volatile than market" : "Highly volatile") + (/\.(TO|V|CN|NE|TSX)$/i.test(symbol) ? " (vs TSX)" : " (vs S&P 500)") },
       analystTarget != null && { label: "Analyst vs Price", value: `$${analystTarget.toFixed(2)} target`, status: vsTarget != null ? (vsTarget < 0 ? "good" as const : vsTarget <= 15 ? "watch" as const : "bad" as const) : "watch" as const, context: vsTarget != null ? `You are ${Math.abs(vsTarget).toFixed(0)}% ${vsTarget > 0 ? "ABOVE" : "BELOW"} consensus` : "No analyst target" },
       dcfFairValue != null && dcfFairValue > 0 && { label: "DCF Fair Value", value: `$${dcfFairValue >= 1 ? dcfFairValue.toFixed(2) : dcfFairValue.toFixed(4)}`, status: dcfMarginOfSafety != null ? (dcfMarginOfSafety > 25 ? "good" as const : dcfMarginOfSafety > 0 ? "watch" as const : "bad" as const) : "watch" as const, context: dcfMarginOfSafety != null ? (dcfMarginOfSafety > 0 ? `${dcfMarginOfSafety.toFixed(0)}% margin of safety` : `${Math.abs(dcfMarginOfSafety).toFixed(0)}% above fair value`) : "" },
+      dividendYield != null && dividendYield > 0 && { label: "Dividend Yield", value: `${(dividendYield * 100).toFixed(2)}%`, status: dividendYield >= 0.03 ? "good" as const : dividendYield >= 0.01 ? "watch" as const : "watch" as const, context: dividendYield >= 0.04 ? "High yield — verify sustainability" : dividendYield >= 0.02 ? "Moderate income" : "Low yield" },
     ].filter(Boolean),
   };
 }
@@ -1441,7 +1451,7 @@ async function fetchEtfXray(symbol: string): Promise<AnyObj | null> {
       score,
       scoreComponents: etfComponents,
       metrics: [
-        price != null && { label: "Current Price", value: `$${price.toFixed(2)}`, status: "good" },
+        price != null && { label: "Current Price", value: `${/\.(TO|V|CN|NE|TSX)$/i.test(symbol) ? "C$" : "$"}${price.toFixed(2)}`, status: "good" },
         { label: "YTD Return", value: pct(retYTD), status: retStatus(retYTD) },
         { label: "1Y · 6M Returns", value: `1Y ${pct(ret1Y)}   ·   6M ${pct(ret6M)}`, status: retStatus(ret1Y) },
         { label: "Trend", value: trendLabel, status: trendStatus },
@@ -1609,6 +1619,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
     };
 
     const price = v7 ? n(v7.regularMarketPrice) : null;
+    const yahCurrency = (v7?.currency as string) || (/\.(TO|V|CN|NE|TSX)$/i.test(sym) ? "CAD" : "USD");
     const name = (v7?.longName as string) || (v7?.shortName as string) || sym;
 
     // Cache hit — instant response with full data
@@ -1646,8 +1657,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
           const row = Object.values(tickers).find(t => t.ticker.toUpperCase() === clean);
           if (row) {
             const cik = String(row.cik_str).padStart(10, "0");
-            // xbrlDataDate: date of the most recent structured filing we have
-            const xbrlDataDate = sec.totalCash !== null ? null : null; // will check submissions
+            const xbrlDataDate: string | null = null;
             const pr = await Promise.race([
               fetchPressRelease6K(cik, xbrlDataDate),
               new Promise<PressReleaseData>(resolve => setTimeout(() => resolve({ cash: null, revenueTtm: null }), 6000)),
@@ -1698,6 +1708,8 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
             beta: yf.beta ?? sec.beta,
             forwardPE: yf.forwardPE ?? sec.forwardPE,
             pegRatio: yf.pegRatio ?? sec.pegRatio,
+            evToEbitda: yf.evToEbitda ?? sec.evToEbitda,
+            dividendYield: yf.dividendYield ?? sec.dividendYield,
             // Also take Yahoo shares if it's larger (more complete) than EDGAR's count
             sharesOutstanding: [sec.sharesOutstanding, yf.sharesOutstanding]
               .filter((v): v is number => v != null && v > 0)
@@ -1750,7 +1762,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
 
   } catch (error) {
     return NextResponse.json(
-      { symbol: sym, source: "x-ray failed", score: 0, metrics: [], valuation: [], _summary: null, warning: error instanceof Error ? error.message : "X-Ray failed" },
+      { symbol: sym, source: "x-ray failed", score: null, metrics: [], valuation: [], _summary: null, warning: error instanceof Error ? error.message : "X-Ray failed" },
       { status: 502 }
     );
   }

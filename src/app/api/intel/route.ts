@@ -250,6 +250,7 @@ export async function POST(request: Request) {
     }
     evidenceNewsLines = allNewsLines;
     if (allNewsLines.length > 0) sections.push(`Recent headlines (dated YYYY-MM-DD, NEWEST FIRST — when two conflict on the same fact the more recent supersedes; a correction/update overrides the older report):\n${allNewsLines.map((h) => `- ${h}`).join("\n")}`);
+    else sections.push("Recent headlines: NO NEWS COULD BE RETRIEVED — news sources may be temporarily unavailable. Do NOT interpret this as 'nothing is happening'; state that news was unavailable and base your brief on the other evidence below.");
     evidenceSecLines = secLines;
     if (secLines.length > 0) sections.push(`Recent SEC filings (last 30 days):\n${secLines.map((s) => `- ${s}`).join("\n")}`);
     const filingFactLines = formatFilingFacts(filingFacts);
@@ -501,9 +502,8 @@ ${structuredBrief("an RSI/technical extreme, stretched valuation, elevated debt,
   ].filter(Boolean).join("\n");
 
   const returnBrief = (brief: string) => {
-    // SHADOW MODE: compute the figure audit and log it, but do NOT surface it to the user yet.
-    // We watch the real false-positive rate before showing an "unverified figures" badge.
     let figureAudit: ReturnType<typeof auditFigures> | null = null;
+    let finalBrief = brief;
     try {
       figureAudit = auditFigures(brief, admissibleEvidence);
       if (figureAudit.unverified.length > 0) {
@@ -518,11 +518,9 @@ ${structuredBrief("an RSI/technical extreme, stretched valuation, elevated debt,
       ...(profIndustry ? { industry: profIndustry } : {}),
       ...(assetProfileLabel ? { assetProfile: assetProfileLabel } : {}),
       ...(evidenceXrayBlock ? { xraySummary: evidenceXrayBlock.slice(0, 400) } : {}),
-      // Durable "what this company does" — remembered so abstract tickers stay grounded next time.
       ...(companyDescriptionForLens ? { businessSummary: companyDescriptionForLens.slice(0, 400) } : {}),
     });
-    // _figureAudit is shadow telemetry — present in the payload for inspection, not yet rendered.
-    return NextResponse.json({ ticker, brief, _figureAudit: figureAudit });
+    return NextResponse.json({ ticker, brief: finalBrief, _figureAudit: figureAudit });
   };
 
   // FREE CASCADE FIRST — Cerebras→Groq→Gemini at $0. Anthropic is the emergency-only fallback.

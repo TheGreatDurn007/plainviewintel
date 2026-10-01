@@ -20,10 +20,11 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
 (function(){try{var p=new URLSearchParams(location.search);if(p.get('utm_source')!=='brief')return;fetch('/api/email-track',{method:'POST',headers:{'Content-Type':'application/json'},keepalive:true,body:JSON.stringify({slot:p.get('utm_campaign')||'',section:p.get('utm_content')||'',loggedin:false})}).catch(function(){});}catch(e){}})();</script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
-  :root{--bg:#0a0b0d;--surface:#14161a;--surface2:#1a1d23;--border:#262a31;--border2:#2a2f37;
+  :root{--bg:#080b12;--surface:#14161a;--surface2:#1a1d23;--border:#262a31;--border2:#2a2f37;
     --text:#e8eaed;--text2:#c4c9d1;--text3:#aeb4be;--green:#1fdf64;--blue:#3b9eff;--red:#ff5c5c;--amber:#e0a500;
     --mono:'Space Mono',ui-monospace,Menlo,monospace;--sans:'Syne',system-ui,-apple-system,Segoe UI,sans-serif;
     --ui:'Inter',system-ui,-apple-system,Segoe UI,sans-serif;}
+  html.embed{--bg:transparent;--surface:rgba(16,20,30,0.65);--surface2:rgba(24,28,40,0.55);--border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.06);}
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
   body{min-height:100vh;position:relative;overflow-x:hidden;}
@@ -31,7 +32,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
   .bg-glow{position:fixed;top:-80px;left:0;right:0;height:460px;z-index:0;pointer-events:none;background:radial-gradient(ellipse 60% 100% at 50% 0%,rgba(31,223,100,.13),rgba(31,223,100,.04) 45%,transparent 72%);}
   .wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:14px 20px 70px;}
   html.embed body{background:transparent;}
-  html.embed .bg-grid,html.embed .bg-glow,html.embed .topbar,html.embed .tabs{display:none!important;}
+  html.embed .bg-grid,html.embed .bg-glow,html.embed .topbar,html.embed .tabs,html.embed #xr-foot{display:none!important;}
   html.embed .wrap{max-width:none;padding:0 0 30px;}
   .topbar{display:flex;align-items:center;justify-content:space-between;padding-top:14px;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
   .brand{display:flex;align-items:center;gap:11px;cursor:pointer;}
@@ -371,7 +372,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
       <span class="lbl">Trending:</span>
       <span id="tr-chips"><span class="chip" data-t="NVDA">NVDA</span><span class="chip" data-t="PLTR">PLTR</span><span class="chip" data-t="BTC-USD">BTC</span><span class="chip" data-t="HIMS">HIMS</span></span>
     </div>
-    <div class="sec-h"><span class="t">🎯 Today's top picks</span><span class="m">today's movers</span><span class="badge-sample" id="picks-badge">SAMPLE · live scan coming soon</span></div>
+    <div class="sec-h"><span class="t">📊 Unusual activity</span><span class="m">today's movers</span><span class="badge-sample" id="picks-badge">SAMPLE · live scan coming soon</span></div>
     <div class="picks" id="picks-list">
       <div class="pick" data-t="RKLB"><div class="pick-top"><span class="pick-tkr">RKLB</span><span class="pick-mv up">▲ 6.1%</span></div><div class="pick-why">Neutron test-fire cleared overnight — launch cadence story intact.</div></div>
       <div class="pick" data-t="HIMS"><div class="pick-top"><span class="pick-tkr">HIMS</span><span class="pick-mv up">▲ 4.5%</span></div><div class="pick-why">Subscriber beat leaked pre-market — telehealth re-rate building.</div></div>
@@ -395,7 +396,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
         </div>
       </div>
     </div>
-    <div class="foot">Got holdings? <a href="/login">Sign in</a> to track your portfolio, theses, and catalysts.</div>
+    <div class="foot" id="xr-foot">Got holdings? <a href="/login">Sign in</a> to track your portfolio, theses, and catalysts.</div>
   </div>
 
 </div>
@@ -413,7 +414,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
   // Abstract score tier shown under every score (same scale for any ticker). Crypto/pre-revenue keep their
   // own provided label (Strong/Mixed/Weak/N/A); everything else derives a tier from the 0–10 number.
   function scoreTier(v){return v>=8?'HEALTHY':v>=6.5?'SOLID':v>=5?'MIXED':v>=3.5?'WEAK':'DISTRESSED';}
-  function scoreLblHtml(d,sc){var lbl=(d.scoreLabel!=null&&d.scoreLabel!=='')?String(d.scoreLabel):scoreTier(Number(d.score||0));var col=/^n\/?a$/i.test(lbl)?'var(--text3)':sc;return '<div class="xr-score-lbl" style="color:'+col+'">'+esc(lbl.toUpperCase())+'</div>';}
+  function scoreLblHtml(d,sc){var lbl=(d.scoreLabel!=null&&d.scoreLabel!=='')?String(d.scoreLabel):scoreTier(Number(d.score||0));var col=/^n\/?a$/i.test(lbl)?'var(--text3)':sc;var _k=d.scoreKind||'stock';var _tip=_k==='etf'?'X-Ray measures fund quality from fund metrics and financial data.':_k==='crypto'?'X-Ray measures network health from on-chain and market data.':'X-Ray measures business quality from SEC filings and financial data.';_tip+=' A high score means strong fundamentals — it does not predict price movement or guarantee returns.';return '<div class="xr-score-lbl" style="color:'+col+'" title="'+_tip+'">'+esc(lbl.toUpperCase())+'</div>';}
   var CAM='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>';
   // Stock-chart trend icons (the zig-zag line + arrowhead, like 📈/📉) — NOT plain arrows.
   var TREND_UP='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>';
@@ -893,11 +894,12 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
         +'</div><div id="xrsecb-'+esc(sym)+'-'+i+'"></div>';
     }).join('');
   }
-  async function loadXraySec(sym){
+  async function loadXraySec(sym,companyName){
     if(window.__xraySecCache[sym]){ xrSecRows(sym,window.__xraySecCache[sym]); return; }
     var host=document.getElementById('xrsec-'+sym); if(!host) return;
     try{
-      var r=await fetch('/api/sec-filings?ticker='+encodeURIComponent(sym),{cache:'no-store'});
+      var u='/api/sec-filings?ticker='+encodeURIComponent(sym); if(companyName) u+='&name='+encodeURIComponent(companyName);
+      var r=await fetch(u,{cache:'no-store'});
       var j=r.ok?await r.json():null; var f=(j&&j.filings)||[];
       window.__xraySecCache[sym]=f; xrSecRows(sym,f); loadFilingInsights(sym);
     }catch(e){ if(host) host.innerHTML='<div style="font-size:12px;color:var(--text3);padding:6px 0">Could not load filings right now.</div>'; }
@@ -1060,7 +1062,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
     // Intro paragraph
     var biz=name+' ('+sym+')';
     biz += sector ? (' operates in the '+esc(sector)+(industry&&industry!==sector?' — '+esc(industry):'')+' sector.') : '.';
-    if(score) biz += ' Plainview&#39;s X-Ray puts its business quality at <strong>'+score+'/10</strong>'+(sLbl?' — '+sLbl+' grade':'')+', scored deterministically from SEC filings and Yahoo Finance.';
+    if(score){var _qual=kind==='etf'?'fund quality':kind==='crypto'?'network health':'business quality';var _src=kind==='etf'?'fund metrics and Yahoo Finance':kind==='crypto'?'on-chain and market data':'SEC filings and Yahoo Finance';biz+=' Plainview&#39;s X-Ray puts its '+_qual+' at <strong>'+score+'/10</strong>'+(sLbl?' — '+sLbl+' grade':'')+', scored deterministically from '+_src+'.';}
     s.push(biz);
 
     // Per-pillar score explanations (stocks / pre-rev)
@@ -1188,7 +1190,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
       var j=r.ok?await r.json():null; if(!j||j.error) throw new Error((j&&j.error)||'failed');
       box.style.color='var(--text2)'; box.innerHTML='<div style="font:700 11px/1 sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#a78bfa;margin-bottom:7px">✦ Plainview Brief</div>'+esc(j.brief||'No brief returned.').replace(/\n+/g,'<br>');
       if(btn) btn.style.display='none';
-    }catch(e){ box.style.color='var(--text3)'; box.textContent='AI brief unavailable right now — try again in a moment.'; if(btn) btn.disabled=false; }
+    }catch(e){ box.style.color='var(--text3)'; var em=e&&e.message?e.message:''; box.textContent=em.includes('credit')?em:'AI brief unavailable right now — try again in a moment.'; if(btn) btn.disabled=false; }
   }
 
   function compareTable(a,b){
@@ -1216,7 +1218,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
     html+=scanned.map(function(s){return s.data._loading?loadCard(s.t):(s.data._err?errCard(s.t,s.data._err):renderCard(s.data));}).join('');
     results.innerHTML=html;
     // Lazy-load each card's recent SEC filings (cached, so re-renders don't re-fetch). Skip crypto/errors.
-    scanned.forEach(function(s){ if(!s.data._loading && !s.data._err && !isCryptoSym(s.t)) loadXraySec(s.t); });
+    scanned.forEach(function(s){ if(!s.data._loading && !s.data._err && !isCryptoSym(s.t)) loadXraySec(s.t,s.data.name||null); });
     scanned.forEach(function(s){ if(!s.data._loading && !s.data._err) initXrayChart(s.data.symbol || s.t); });
     scanned.forEach(function(s){ if(!s.data._loading && !s.data._err && !isCryptoSym(s.t) && s.data.scoreKind !== 'etf') loadPeers(s.t); });
   }
@@ -1414,7 +1416,9 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
 
     // Quality tier
     var qTier=score>=8?'strong':score>=6.5?'solid':score>=5?'mixed':score>=3.5?'weak':'distressed';
-    var qWord={'strong':'Strong business','solid':'Solid business','mixed':'Mixed quality','weak':'Weak fundamentals','distressed':'Distressed fundamentals'};
+    var _isCr=isCryptoSym(d.symbol||''),_isETF=(d.scoreKind==='etf');
+    var _noun=_isCr?'network':_isETF?'fund':'business';
+    var qWord={'strong':'Strong '+_noun,'solid':'Solid '+_noun,'mixed':'Mixed quality','weak':'Weak fundamentals','distressed':'Distressed fundamentals'};
 
     // Valuation verdict (only for profitable companies)
     var valVerdict='';
@@ -1447,7 +1451,7 @@ window.addEventListener('unhandledrejection',function(e){var x=e&&e.reason;r('un
     if(d.shortPctFloat!=null&&isFinite(d.shortPctFloat)) details.push((d.shortPctFloat*100).toFixed(1)+'% short float');
 
     var tags=details.length?details.join(' · '):'';
-    var why='X-Ray scores business quality only — momentum, short-squeeze &amp; catalysts live in Decide &amp; Opportunity Cost.';
+    var why='X-Ray scores '+(_isCr?'network health':'business quality')+' only — momentum, short-squeeze &amp; catalysts live in Decide &amp; Opportunity Cost.';
 
     return '<div class="xr-verdict">'
       +'<div class="xr-verdict-main">'+sentence+'</div>'

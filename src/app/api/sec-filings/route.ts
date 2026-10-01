@@ -33,6 +33,22 @@ export async function GET(request: Request) {
     const match = Object.values(tickers).find(t => t.ticker.toUpperCase() === clean);
     if (!match) return NextResponse.json({ filings: [] });
 
+    // ACCURACY GUARD: foreign tickers (e.g. CNR.TO) stripped of suffix can collide with a
+    // different US company (CNR = Core Natural Resources ≠ Canadian National Railway).
+    // If an expectedName is provided, require a distinctive word match; otherwise skip
+    // foreign tickers entirely — showing wrong filings is worse than showing none.
+    const expectedName = url.searchParams.get("name") || "";
+    if (/\.(TO|V|CN|NE|TSX)$/i.test(ticker)) {
+      if (!expectedName) return NextResponse.json({ filings: [] });
+      const norm = (s: string) => s.toLowerCase()
+        .replace(/[.,&]/g, " ")
+        .replace(/\b(inc|corp|corporation|ltd|limited|plc|holdings?|company|companies|co|group|the|of|sa|nv|ag|llc|lp|trust|fund)\b/g, " ")
+        .split(/\s+/).filter(w => w.length >= 4);
+      const want = new Set(norm(expectedName));
+      const got = norm(String(match.title || ""));
+      if (!got.some(w => want.has(w))) return NextResponse.json({ filings: [] });
+    }
+
     const cik = String(match.cik_str).padStart(10, "0");
     const cikInt = match.cik_str;
     const entityName = match.title;
