@@ -89,9 +89,11 @@ export async function POST(request: Request) {
   // Start memory read early — runs in parallel with everything below; awaited lazily before evidence build.
   const memoryPromise = readTickerMemory(ticker);
 
-  // Detect asset class — frontend sends isCrypto / isETF flags in the data object
+  // Detect asset class — frontend sends isCrypto / isETF / isCommodity flags in the data object
   const isCrypto = !!(data as Record<string, unknown>)?.isCrypto;
   const isETF = !!(data as Record<string, unknown>)?.isETF;
+  const isCommodity = !!(data as Record<string, unknown>)?.isCommodity;
+  const isWarrant = !!(data as Record<string, unknown>)?.isWarrant;
   // Watchlist = a stock the investor does NOT own yet and is waiting to buy.
   const isWatchlist = !!(data as Record<string, unknown>)?.isWatchlist;
   // Authoritative X-Ray score exactly as the card displays it — keeps the brief consistent
@@ -188,6 +190,28 @@ export async function POST(request: Request) {
     // Pass the live price so the technical block STATES where price sits vs each MA ("(price is above)")
     // — otherwise the model derives it and keeps confusing the 50/200 cross with price-vs-200-day.
     const cardPrice = (typeof (data as Record<string, unknown>)?.price === "number" ? ((data as Record<string, unknown>).price as number) : null) ?? ta.prevClose ?? null;
+    const taBlock = formatTechnical(ta, cardPrice);
+    evidenceTechnicalBlock = taBlock;
+    if (taBlock) sections.push(`Technical levels:\n${taBlock}`);
+
+  } else if (isCommodity) {
+    // --- COMMODITY / PHYSICAL METAL PATH ---
+    // Physical silver, gold, etc. are NOT companies. Skip: SEC filings, earnings, analyst targets,
+    // company fundamentals. Use: commodity-specific news + technicals (via the Yahoo ticker).
+    const commodityData = data as Record<string, unknown>;
+    const commodityName = (commodityData.name as string) || ticker;
+
+    const [newsLines, ta] = await Promise.all([
+      cap(fetchRecentNews(commodityName !== ticker ? commodityName : ticker), 3000, [] as string[]),
+      cap(fetchTechnicalData(ticker), 3000, { ma50:null, ma200:null, week52High:null, week52Low:null, avgVolume:null, currentVolume:null, beta:null, shortPercentOfFloat:null, floatShares:null, shortShares:null, daysToCover:null, rsi:null, rsiSignal:null, ma50Slope:null, prevClose:null }),
+    ]);
+
+    sections.push(`ASSET TYPE: Physical commodity (${commodityName}). This is NOT a company — do NOT discuss SEC filings, earnings, P/E ratios, or company management. Focus on spot price, supply/demand, macro drivers (rates, dollar strength, inflation), and technical levels.`);
+    if (xrayScoreLabel) sections.push(`Plainview X-Ray score: ${xrayScoreLabel}`);
+    evidenceNewsLines = newsLines;
+    if (newsLines.length > 0) sections.push(`Recent headlines (dated YYYY-MM-DD, NEWEST FIRST):\n${newsLines.map((h) => `- ${h}`).join("\n")}`);
+    const cardPrice = (typeof commodityData?.price === "number" ? (commodityData.price as number) : null) ?? ta.prevClose ?? null;
+    _taForSignal = ta; _cardPriceForSignal = cardPrice;
     const taBlock = formatTechnical(ta, cardPrice);
     evidenceTechnicalBlock = taBlock;
     if (taBlock) sections.push(`Technical levels:\n${taBlock}`);

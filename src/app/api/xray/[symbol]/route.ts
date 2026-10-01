@@ -1577,6 +1577,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
   if (new URL(req.url).searchParams.get("bg") !== "1") void logUsage("xray", symbol.toUpperCase());
   const rawSym = symbol.toUpperCase();
   const sym = await resolveCanadianSymbol(rawSym);
+  const _isWarrant = /[.\-](WT|WS|WR)$/i.test(rawSym) || /WT$/i.test(rawSym);
 
   // ETF path — detected via chart instrumentType. Self-contained; returns the same
   // shape the client renders. If not an ETF, fetchEtfXray returns null and we
@@ -1633,7 +1634,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
         xraySummary: buildXraySnippet(result, profile.sector, profile.industry),
       });
       // buildSummary merges v7 + SEC so enrichXrayScan can compute all valuation cells
-      return NextResponse.json({ ...result, sector: profile.sector, industry: profile.industry, shortShares: shortInt.shortShares, shortPctFloat: shortInt.shortPctFloat, daysToCover: shortInt.daysToCover, earningsHistory: earningsHist, forwardEstimates: fwdEst, _summary: buildSummary(v7, cachedSec) }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json({ ...result, sector: profile.sector, industry: profile.industry, shortShares: shortInt.shortShares, shortPctFloat: shortInt.shortPctFloat, daysToCover: shortInt.daysToCover, earningsHistory: earningsHist, forwardEstimates: fwdEst, _summary: buildSummary(v7, cachedSec), ...(_isWarrant ? { warrantNote: "This is a warrant — fundamentals shown are for the issuing company, not the warrant itself. Cash per share, P/E, and other valuation metrics reflect the common stock." } : {}) }, { headers: { "Cache-Control": "no-store" } });
     }
 
     // Cache miss — try SEC first, fall back to Yahoo fundamentals for non-US stocks.
@@ -1758,7 +1759,7 @@ export async function GET(req: Request, context: { params: Promise<{ symbol: str
       industry: profile.industry ?? null,
       xraySummary: buildXraySnippet(result, profile.sector, profile.industry),
     });
-    return NextResponse.json({ ...result, sector: profile.sector, industry: profile.industry, shortShares: shortInt.shortShares, shortPctFloat: shortInt.shortPctFloat, daysToCover: shortInt.daysToCover, earningsHistory: earningsHist, forwardEstimates: fwdEst, _summary: buildSummary(v7, sec) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ...result, sector: profile.sector, industry: profile.industry, shortShares: shortInt.shortShares, shortPctFloat: shortInt.shortPctFloat, daysToCover: shortInt.daysToCover, earningsHistory: earningsHist, forwardEstimates: fwdEst, _summary: buildSummary(v7, sec), ...(_isWarrant ? { warrantNote: "This is a warrant — fundamentals shown are for the issuing company, not the warrant itself. Cash per share, P/E, and other valuation metrics reflect the common stock." } : {}) }, { headers: { "Cache-Control": "no-store" } });
 
   } catch (error) {
     return NextResponse.json(

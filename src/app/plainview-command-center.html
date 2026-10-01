@@ -4264,13 +4264,13 @@ function renderPositions() {
               ${intelBriefCache[p.id]?.text ? `<details class="intel-brief" style="margin-bottom:8px" ${openIntelBriefTicker === p.id ? 'open' : ''} ontoggle="this.open ? (openIntelBriefTicker='${p.id}') : (openIntelBriefTicker === '${p.id}' && (openIntelBriefTicker=null))"><summary><span class="intel-brief-label">Intel Brief</span><span class="intel-brief-ts">${new Date(intelBriefCache[p.id].timestamp).toLocaleString()}</span></summary><div class="intel-brief-body">${escapeHtml(intelBriefCache[p.id].text)}</div></details>` : ''}
               ${p.catalyst ? `<div class="ccat">${p.catalyst}</div>` : ''}
               ${p.thesis ? `<div class="cthesis">${p.thesis}</div>${p._thesisSource ? `<div style="font-size:10px;color:var(--text3);margin:-2px 0 4px">${p._thesisSource === 'ai' ? 'AI assessment' : 'Your thesis'}${p._thesisDate ? ' · ' + p._thesisDate : ''}</div>` : ''}${nexusContradictionAlert(p.id)}${thesisStatusCardHtml(p.id)}${_nexusTrendChip(p.id)}` : ''}
-              ${p.exit ? `<details class="cexit-detail"${_detailsOpenAttr(p.id + ':exit')}><summary>Exit / Take-Profit</summary><div class="cexit">Exit: ${p.exit}</div>${p.takeProfit ? `<div class="cexit" style="color:var(--green)">Take-profit: ${escapeHtml(p.takeProfit)}</div>` : ''}</details>` : ''}
+              ${p.exit ? `<details class="cexit-detail"${_detailsOpenAttr(p.id + ':exit')}><summary>Exit / Take-Profit</summary><div class="cexit">Exit: ${p.exit}</div>${_exitRuleWarning(p.exit, p.current)}${p.takeProfit ? `<div class="cexit" style="color:var(--green)">Take-profit: ${escapeHtml(p.takeProfit)}</div>` : ''}</details>` : ''}
               ${p.risk_note ? `<details class="bear-case-detail"${_detailsOpenAttr(p.id + ':bear')}><summary>Bear Case</summary><div class="bear-case-body">${escapeHtml(p.risk_note)}</div></details>` : ''}
             </div>
             <div class="card-body-right">
               <div class="cstats cstats-main">
                 <div class="cst"><div class="cst-l">${isCrypto(p)?'Price / Coin':'Price'}</div><div class="cst-v">${renderPriceCellHtml(p, p.currency)}</div></div>
-                <div class="cst"><div class="cst-l">${isCrypto(p)?'Coins':'Shares'}</div><div class="cst-v priv-amt">${p.shares.toLocaleString('en',{maximumFractionDigits:isCrypto(p)?6:0})}</div></div>
+                <div class="cst"><div class="cst-l">${_unitLabel(p)}</div><div class="cst-v priv-amt">${p.shares.toLocaleString('en',{maximumFractionDigits:isCrypto(p)?6:0})}</div></div>
                 <div class="cst"><div class="cst-l">Avg Cost</div><div class="cst-v priv-amt">${cs}${p.avg.toFixed(2)}</div></div>
                 <div class="cst" style="overflow:visible">${eHasPerf
                   ? `<div class="perf-stat-grid">${epc('Today',eTodayPct)}${epc('5D',eD5)}${epc('1Mo',eMo1)}${epc('3Mo',eMo3)}</div>`
@@ -4360,6 +4360,7 @@ function renderPositions() {
           <details class="cexit-detail"${_detailsOpenAttr(p.id + ':exit')}>
             <summary>Exit / Take-Profit</summary>
             <div class="cexit">Exit: ${p.exit}</div>
+            ${_exitRuleWarning(p.exit, p.current)}
             ${p.takeProfit ? `<div class="cexit" style="color:var(--green)">Take-profit: ${escapeHtml(p.takeProfit)}</div>` : ''}
           </details>
           ${p.risk_note ? `<details class="bear-case-detail"${_detailsOpenAttr(p.id + ':bear')}><summary>Bear Case</summary><div class="bear-case-body">${escapeHtml(p.risk_note)}</div></details>` : ''}
@@ -4367,7 +4368,7 @@ function renderPositions() {
         <div class="card-body-right">
           <div class="cstats cstats-main">
             <div class="cst"><div class="cst-l">${isCrypto(p)?'Price / Coin':'Price'}</div><div class="cst-v">${renderPriceCellHtml(p, p.currency)}</div></div>
-            <div class="cst"><div class="cst-l">${isCrypto(p)?'Coins':'Shares'}</div><div class="cst-v priv-amt">${p.shares.toLocaleString('en',{maximumFractionDigits:isCrypto(p)?6:0})}</div></div>
+            <div class="cst"><div class="cst-l">${_unitLabel(p)}</div><div class="cst-v priv-amt">${p.shares.toLocaleString('en',{maximumFractionDigits:isCrypto(p)?6:0})}</div></div>
             <div class="cst"><div class="cst-l">Avg Cost</div><div class="cst-v priv-amt">${cs}${p.avg.toFixed(2)}</div></div>
             <div class="cst" style="overflow:visible">${_hasPerf
               ? `<div class="perf-stat-grid">${_pc('Today',_todayPct)}${_pc('5D',_d5)}${_pc('1Mo',_mo1)}${_pc('3Mo',_mo3)}</div>`
@@ -5109,8 +5110,31 @@ function _assetUnit(ticker) {
   var tk = String(ticker).toUpperCase();
   if (isCryptoSymbol(tk)) return 'coins';
   if (/^SI[=\-]?F$/.test(tk) || /SILVER/i.test(tk)) return 'oz';
+  if (/^GC[=\-]?F$/.test(tk) || /GOLD/i.test(tk)) return 'oz';
   if (/\-WT/.test(tk) || /\bWT\b/.test(tk)) return 'wts';
   return 'sh';
+}
+function _unitLabel(item) {
+  if (!item) return 'Shares';
+  if (isCrypto(item)) return 'Coins';
+  var u = _assetUnit(item.id || item.ticker);
+  if (u === 'oz') return 'Ounces';
+  if (u === 'wts') return 'Warrants';
+  return 'Shares';
+}
+function _exitRuleWarning(exitText, currentPrice) {
+  if (!exitText || !currentPrice || currentPrice <= 0) return '';
+  var nums = String(exitText).match(/\$\s*([\d,.]+)/g);
+  if (!nums || !nums.length) return '';
+  for (var i = 0; i < nums.length; i++) {
+    var n = parseFloat(nums[i].replace(/[\$,\s]/g, ''));
+    if (!n || n <= 0) continue;
+    var ratio = currentPrice / n;
+    if (ratio > 50 || ratio < 0.02) {
+      return '<div style="font:600 10px/1.3 var(--mono);color:var(--orange);margin-top:3px">⚠ Exit price ($' + n.toFixed(2) + ') looks wrong vs current price (' + (currentPrice>=1?'$'+currentPrice.toFixed(2):'$'+currentPrice.toFixed(4)) + ') — may be from a different instrument or currency. Review and correct.</div>';
+    }
+  }
+  return '';
 }
 function _actionRowHtml(a){
   var T = { opened:{c:'var(--green)',v:'Opened'}, added:{c:'var(--green)',v:'Averaged '+((a.avg_after!=null&&a.avg_before!=null&&a.avg_after>a.avg_before)?'up':'in')}, trimmed:{c:'var(--red)',v:'Trimmed'}, closed:{c:'var(--text3)',v:'Closed'} };
@@ -7337,12 +7361,12 @@ function runSizingCalculator() {
   const _noteHtml = (window._dcSizeNote && _sp && _sp.dataset.auto === '1')
     ? `<div class="brief-item" style="grid-column:1/-1;border-left:3px solid var(--yellow,#e0a500)"><p style="margin:0">⚑ ${window._dcSizeNote}</p></div>` : '';
   result.innerHTML = _noteHtml + `
-    <div class="big-metric"><span>${_decideIsCrypto?'Coins':'Shares'} at this risk</span><b>${r.shares.toLocaleString('en')}</b></div>
+    <div class="big-metric"><span>${_unitLabel({ticker:_decideLookedUp})} at this risk</span><b>${r.shares.toLocaleString('en')}</b></div>
     <div class="big-metric"><span>Position value</span><b>${cs}${r.positionValue.toLocaleString('en',{maximumFractionDigits:0})}</b></div>
     <div class="big-metric"><span>If stopped out</span><b>&minus;${cs}${r.loss.toLocaleString('en',{maximumFractionDigits:0})} (${r.lossPct.toFixed(1)}%)</b></div>
     <div class="brief-item" style="grid-column:1/-1"><strong>Your math</strong><p>${r.capped
-      ? `Your ${cs}${Math.round(r.cash).toLocaleString('en')} cash caps this at ${r.shares.toLocaleString('en')} shares (you can't deploy more than you have) — a ${r.stop.toFixed(2)} stop would cost ${cs}${Math.round(r.loss).toLocaleString('en')}, ${r.lossPct.toFixed(1)}% of your cash.`
-      : `Risking ${cs}${r.riskPerShare.toFixed(2)} per share, about ${r.lossPct.toFixed(1)}% of your cash if the stop hits — a planned number, not an emotional one. (Risk management, not a recommendation to buy.)`}</p></div>`;
+      ? `Your ${cs}${Math.round(r.cash).toLocaleString('en')} cash caps this at ${r.shares.toLocaleString('en')} ${_unitLabel({ticker:_decideLookedUp}).toLowerCase()} (you can't deploy more than you have) — a ${r.stop.toFixed(2)} stop would cost ${cs}${Math.round(r.loss).toLocaleString('en')}, ${r.lossPct.toFixed(1)}% of your cash.`
+      : `Risking ${cs}${r.riskPerShare.toFixed(2)} per ${_assetUnit(_decideLookedUp)==='oz'?'ounce':_assetUnit(_decideLookedUp)==='wts'?'warrant':_assetUnit(_decideLookedUp)==='coins'?'coin':'share'}, about ${r.lossPct.toFixed(1)}% of your cash if the stop hits — a planned number, not an emotional one. (Risk management, not a recommendation to buy.)`}</p></div>`;
 }
 function catalystRows() {
   const rows = [];
@@ -7550,7 +7574,9 @@ function rankCapital(){
               : (xrayCache[ticker] && typeof xrayCache[ticker].score === 'number') ? xrayCache[ticker].score
               : (tc && typeof tc.businessScore === 'number') ? tc.businessScore : null; // cached from the thesis-check
     const toEntry = (entry > 0 && price > 0) ? ((price - entry) / entry * 100) : null;
-    const setup = computeSetup({ toEntryPct: toEntry, assetType: cryptoFlag ? 'crypto' : 'stock', price: price });
+    const xr = xrayCache[id] || xrayCache[ticker];
+    const _xrTa = xr && xr._summary;
+    const setup = computeSetup({ toEntryPct: toEntry, assetType: cryptoFlag ? 'crypto' : 'stock', price: price, rsi: _xrTa && _xrTa.rsi, ma50: _xrTa && _xrTa.ma50, ma200: _xrTa && _xrTa.ma200, w52High: _xrTa && _xrTa.week52High });
     // NEXUS trend gate: the capital ranker must respect the SAME signal "Needs attention" uses, or it
     // contradicts itself (telling you to "scale in" to a thesis NEXUS is flagging as weakening). Pull the
     // live trend and let it veto (contradicted → drop) or demote (weakening → sink + honest verdict).
@@ -7565,7 +7591,7 @@ function rankCapital(){
   };
   (Array.isArray(positions) ? positions : []).forEach(p => add(p.id, p.ticker || p.id, p.price, p.entry || p.buyTarget, isCrypto(p)));
   (Array.isArray(watchlist) ? watchlist : []).forEach(w => add(w.ticker, w.ticker, w.current, w.entry, isCrypto(w)));
-  out.sort((a, b) => b.deploy - a.deploy);
+  out.sort((a, b) => b.deploy - a.deploy || (b.biz || 0) - (a.biz || 0) || (b.argScore || 0) - (a.argScore || 0));
   return out;
 }
 function _capitalRowHtml(n, i){
@@ -7576,7 +7602,7 @@ function _capitalRowHtml(n, i){
   return '<div class="dash-zone-item attn-row' + (click ? '' : ' attn-static') + '" style="border-left:2px solid ' + n.cv.c + '"' + (click ? ' onclick="attentionDrill(\'' + n.ticker + '\')"' : '') + '>'
     + '<span class="attn-rank" style="color:var(--text3);font-size:11px;width:14px">' + (i + 1) + '</span>'
     + '<div style="flex:1;min-width:0"><div><b>' + escapeHtml(n.ticker) + '</b> <span style="color:' + n.cv.c + ';font-weight:600">' + escapeHtml(n.cv.label) + '</span></div>'
-    + '<div style="font:600 10px/1.3 var(--mono);color:var(--text3)">Business ' + b + ' · Argument ' + a + ' · Setup ' + s + '</div></div>'
+    + '<div style="font:600 10px/1.3 var(--mono);color:var(--text3)">Business ' + b + ' · Argument ' + a + ' · Setup ' + (n.setup && n.setup.word && n.setup.word !== '—' ? n.setup.word : s) + '</div></div>'
     + (click ? '<span class="attn-go">›</span>' : '') + '</div>';
 }
 // Fill the Capital ranking's Business leg: X-Ray scores aren't pre-loaded for every name, so fetch them
@@ -8128,14 +8154,17 @@ function renderNexusBrief() {
     const tr = led.trackRecord;
     if (tr && tr.resolved > 0) {
       const quad = (label, n, col, sub) => '<div style="flex:1;min-width:90px;background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + col + ';border-radius:9px;padding:9px 11px"><div style="font:800 18px/1 var(--sans);color:' + col + '">' + n + '</div><div style="font:700 10px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--text2);margin-top:4px">' + label + '</div><div style="font-size:10px;color:var(--text3);margin-top:2px">' + sub + '</div></div>';
+      const _graded = (tr.skill||0) + (tr.luck||0) + (tr.variance||0) + (tr.failure||0);
+      const _ungraded = tr.resolved - _graded;
       ledgerHtml = '<div style="font:600 13px/1.5 var(--ui);color:var(--text2);margin-bottom:9px">Of <b style="color:var(--text)">' + tr.resolved + '</b> resolved call' + (tr.resolved === 1 ? '' : 's') + ': <span style="color:var(--green)">' + tr.outcomeRight + ' hit the target</span>, and <span style="color:#5cc8ff">' + tr.reasoningRight + ' were right for the right reason</span>.</div>'
         + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
         + quad('Skill', tr.skill, 'var(--green)', 'right · sound thesis')
         + quad('Luck', tr.luck, 'var(--yellow,#e0a500)', 'right · broken thesis')
         + quad('Variance', tr.variance, '#5cc8ff', 'wrong · sound thesis')
         + quad('Failure', tr.failure, 'var(--red)', 'wrong · broken thesis')
+        + (_ungraded > 0 ? quad('Awaiting grade', _ungraded, 'var(--text3)', 'resolved but not yet graded') : '')
         + '</div>'
-        + '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">Outcome-right ≠ reasoning-right. Skill repeats; luck doesn\'t — and a sound call killed by a black swan (variance) isn\'t a mistake.</div>';
+        + '<div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">Outcome-right ≠ reasoning-right. Skill repeats; luck doesn\'t — and a sound call killed by a black swan (variance) isn\'t a mistake.' + (_ungraded > 0 ? ' ' + _ungraded + ' call' + (_ungraded>1?'s':'') + ' resolved but not yet graded (reasoning not assessed).' : '') + '</div>';
     } else {
       const earliest = (led.open && led.open.length) ? led.open.map(p => p.horizonDate).filter(Boolean).sort()[0] : null;
       const earlyStr = earliest ? new Date(earliest + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : null;
@@ -9660,7 +9689,8 @@ function renderXrays() {
     const _isEarly = !!(s.earlyStage && !_isPreRev);
     const _earlyBadge = _isEarly ? ` <span class="crypto-chip" style="background:rgba(155,175,192,.16);color:var(--text2)">early-stage</span>` : '';
     const _earlyNote = _isEarly ? `<div style="margin:10px 0 0;padding:8px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);font-size:11px;color:var(--text2);line-height:1.5">⚠ ${escapeHtml(s.earlyStageNote||'')}${s.miningRunway?'<br>'+escapeHtml(s.miningRunway):''}</div>` : '';
-    return `<div class="xray-row${_seld?' xc-selected':''}" id="xray-card-${escapeHtml(s.symbol)}"><div class="xray-head"><div><span class="tk">${escapeHtml(s.symbol)}</span> <strong>${escapeHtml(s.name || '')}</strong>${s.assetType==='crypto' ? ' <span class="crypto-chip">crypto</span>' : ''}${_isPreRev?` <span class="crypto-chip" style="background:rgba(155,175,192,.16);color:var(--text2)">${_preRevChip}</span>`:''}${_earlyBadge}<div class="news-meta" title="${escapeHtml(s.source || '')}">Plainview X-Ray</div></div><div style="display:flex;align-items:center;gap:10px"><button class="xray-snap" title="Save snapshot image" aria-label="Save snapshot" onclick="snapshotXray('${escapeHtml(s.symbol)}', event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></button><button class="xray-cmp-btn${_seld?' on':''}" title="Compare head-to-head (pick 2)" onclick="toggleXrayCompare('${escapeHtml(s.symbol)}')">⇄</button>${_scoreWrap}</div></div><div class="health-grid">${(s.cells||[]).map((c,i)=>scoreCell(c.label,c.value,c.cls,i===0)).join('')}</div>${_earlyNote}${valuationSectionHtml(s)}<div id="fi-${escapeHtml(s.symbol)}" class="fi-section"></div>${filingsHtml}${noDataHtml}${dataWarningHtml}${renderEvidenceTimeline(s.symbol)}<div id="insider-track-${escapeHtml(s.symbol)}">${renderInsiderTrack(s.symbol)}</div><div style="margin-top:10px"><button class="${briefBtnClass}" style="${briefBtnStyle}" onclick="generateXrayBrief('${escapeHtml(s.symbol)}')">✦ AI Brief</button><div id="${briefId}" style="margin-top:8px;font-size:12px;color:var(--text2);line-height:1.6;display:none"></div></div></div>`;
+    const _warrantNote = s.warrantNote ? `<div style="margin:10px 0 0;padding:8px 10px;border-radius:8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);font-size:11px;color:var(--text2);line-height:1.5">⚠ ${escapeHtml(s.warrantNote)}</div>` : '';
+    return `<div class="xray-row${_seld?' xc-selected':''}" id="xray-card-${escapeHtml(s.symbol)}"><div class="xray-head"><div><span class="tk">${escapeHtml(s.symbol)}</span> <strong>${escapeHtml(s.name || '')}</strong>${s.assetType==='crypto' ? ' <span class="crypto-chip">crypto</span>' : ''}${_isPreRev?` <span class="crypto-chip" style="background:rgba(155,175,192,.16);color:var(--text2)">${_preRevChip}</span>`:''}${_earlyBadge}<div class="news-meta" title="${escapeHtml(s.source || '')}">Plainview X-Ray</div></div><div style="display:flex;align-items:center;gap:10px"><button class="xray-snap" title="Save snapshot image" aria-label="Save snapshot" onclick="snapshotXray('${escapeHtml(s.symbol)}', event)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></button><button class="xray-cmp-btn${_seld?' on':''}" title="Compare head-to-head (pick 2)" onclick="toggleXrayCompare('${escapeHtml(s.symbol)}')">⇄</button>${_scoreWrap}</div></div><div class="health-grid">${(s.cells||[]).map((c,i)=>scoreCell(c.label,c.value,c.cls,i===0)).join('')}</div>${_earlyNote}${_warrantNote}${valuationSectionHtml(s)}<div id="fi-${escapeHtml(s.symbol)}" class="fi-section"></div>${filingsHtml}${noDataHtml}${dataWarningHtml}${renderEvidenceTimeline(s.symbol)}<div id="insider-track-${escapeHtml(s.symbol)}">${renderInsiderTrack(s.symbol)}</div><div style="margin-top:10px"><button class="${briefBtnClass}" style="${briefBtnStyle}" onclick="generateXrayBrief('${escapeHtml(s.symbol)}')">✦ AI Brief</button><div id="${briefId}" style="margin-top:8px;font-size:12px;color:var(--text2);line-height:1.6;display:none"></div></div></div>`;
   }).join('');
   scans.forEach(s => { if (s.assetType !== 'crypto') { fetchInsiderTrack(s.symbol); fetchFilingInsights(s.symbol, s.secFilings); } });
 }
@@ -9993,6 +10023,7 @@ function clearNewsFilter() {
 // rises above listicle noise. Universal — works for any ticker; tickers without a thesis fall back to
 // catalyst + source quality. Returns {score, material, why}.
 const _NEWS_NOISE = /(\d+\s+(stocks?|reasons?|things|charts)\b|stocks? to (watch|buy)|best stocks|should you (buy|sell)|motley fool|zacks rank|here'?s why .* could|jim cramer|top \d+|vs\.? |heatmap|magnificent seven|reddit|wallstreetbets|penny stocks?)/i;
+const _NEWS_REFERENCE = /(tradingview|stockanalysis|macrotrends|simplywall|tipranks|finviz|revenue breakdown|financials overview|balance sheet|income statement|fundamental data)/i;
 // Index/market-wrap roundups: real-sounding but not company news — a daily recap that name-drops a ticker.
 // Demoted (not buried) so a dedicated company catalyst always outranks them, even if they share a keyword.
 const _NEWS_MACRO = /(stock market today|market today|nasdaq (rips|tumbles?|jumps?|falls?|rises?|gains?|drops?)|dow (jones|rips|tumbles?|jumps?|falls?|gains?)|s&p 500 today|wall street (today|rallies|sinks)|(stocks?|markets?|futures?) (rally|rallies|sink|slips?|climbs?|tumbles?|edge|point|rise|fall)\b|premarket|pre-market|closing bell|opening bell|market (open|close)|movers? to watch)/i;
@@ -10038,6 +10069,16 @@ function headlineMateriality(n) {
   // 4) Noise — listicles / clickbait get buried; index/market-wrap roundups get demoted below company news.
   if (_NEWS_NOISE.test(head)) { score -= 38; }
   if (_NEWS_MACRO.test(head)) { score -= 28; why.length = 0; }
+
+  // 5) Reference pages (TradingView, StockAnalysis, etc.) — data tools, not news. Demote them.
+  if (_NEWS_REFERENCE.test(head) || _NEWS_REFERENCE.test(src) || _NEWS_REFERENCE.test(n.url || '')) { score -= 30; }
+
+  // 6) Stale articles — news older than 60 days gets demoted, older than 120 days gets buried.
+  if (n.datetime) {
+    var _ageMs = Date.now() - (n.datetime * 1000);
+    if (_ageMs > 120 * 86400000) score -= 30;
+    else if (_ageMs > 60 * 86400000) score -= 15;
+  }
 
   score = Math.max(0, Math.min(100, score));
   return { score, material: score >= 40, why: why.slice(0, 2).join(' · ') };
@@ -10106,7 +10147,9 @@ function renderNewsGrid() {
     const isActive = selectedNewsChips.has(ticker);
     const isDim = selectedNewsChips.size > 0 && !isActive;
     const mat = n._mat || headlineMateriality(n);
-    const matBadge = mat.material ? `<span title="NEXUS flags this as material${mat.why ? ': ' + escapeHtml(mat.why) : ''}" style="flex-shrink:0;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--purple);background:rgba(187,134,252,.12);border:1px solid rgba(187,134,252,.3);padding:2px 6px;border-radius:5px;white-space:nowrap">✦ MATERIAL${mat.why ? ' · ' + escapeHtml(mat.why) : ''}</span>` : '';
+    const _isRef = _NEWS_REFERENCE.test(headline) || _NEWS_REFERENCE.test(n.source || '') || _NEWS_REFERENCE.test(n.url || '');
+    const matBadge = _isRef ? '<span style="flex-shrink:0;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--text3);background:var(--surface2);border:1px solid var(--border);padding:2px 6px;border-radius:5px;white-space:nowrap">REFERENCE</span>'
+      : mat.material ? `<span title="NEXUS flags this as material${mat.why ? ': ' + escapeHtml(mat.why) : ''}" style="flex-shrink:0;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;color:var(--purple);background:rgba(187,134,252,.12);border:1px solid rgba(187,134,252,.3);padding:2px 6px;border-radius:5px;white-space:nowrap">✦ MATERIAL${mat.why ? ' · ' + escapeHtml(mat.why) : ''}</span>` : '';
     return `<div class="news-item" style="background:var(--surface);border:1px solid var(--border);${mat.material?'border-left:3px solid var(--purple);':''}border-radius:12px;padding:12px 13px;font-family:var(--ui);opacity:${isDim?'.5':'1'}">
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
         <button class="news-chip${isActive?' active':''}${isDim?' dim':''}" data-chip="${escapeHtml(ticker)}" style="flex-shrink:0" onclick="toggleNewsChip('${escapeHtml(ticker)}')">${escapeHtml(ticker)}</button>
@@ -13370,6 +13413,12 @@ async function generateIntelBrief(ticker) {
             industry: (xrayCache[ticker]?.cells?.find(c => c.label === 'Industry')?.value || xrayCache[ticker]?.industry || null),
             // Watchlist entry-timing context (only for un-owned watchlist names)
             ...(isWatch ? { isWatchlist: true, buyTarget: item.entry || null, analystTarget: item.analyst || null } : {}),
+            // Asset type context — prevents the AI from researching the wrong instrument.
+            // Physical commodities (silver, gold) are not equities and must not get SEC/earnings research.
+            name: item.name || ticker,
+            assetType: item.assetType || null,
+            isCommodity: /\b(silver|gold|platinum|palladium|copper)\b/i.test(item.name || '') || _assetUnit(ticker) === 'oz',
+            isWarrant: /\-WT/.test(ticker) || /\bWT\b/.test(ticker) || _assetUnit(ticker) === 'wts',
             // crypto-specific market data from CoinGecko (only present for crypto positions)
             ...(isCrypto(item) ? {
               isCrypto: true,
