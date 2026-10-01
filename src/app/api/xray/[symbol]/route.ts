@@ -1500,7 +1500,7 @@ async function fetchPerfCells(symbol: string): Promise<AnyObj[]> {
     const cells: AnyObj[] = [];
     // One compact "Returns" row (YTD · 1Y · 6M) — like the crypto card's 24h/7d/30d — instead of three
     // separate rows. Colored by the 1-year (the headline performance number).
-    if (retYTD != null) cells.push({ label: "YTD Return", value: pct(retYTD), status: retStatus(retYTD) });
+    if (retYTD != null) cells.push({ label: "YTD Return", value: pct(retYTD), status: retStatus(retYTD), ...(retYTD < -50 ? { context: "Extreme drop — may reflect a spinoff, split, or other corporate action. Verify the adjusted return." } : {}) });
     const ret1Y6Mparts: string[] = [];
     if (ret1Y != null) ret1Y6Mparts.push("1Y " + pct(ret1Y));
     if (ret6M != null) ret1Y6Mparts.push("6M " + pct(ret6M));

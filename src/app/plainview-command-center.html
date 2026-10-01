@@ -3433,8 +3433,9 @@ function renderWatchlistHeatmapView(grid) {
     const inZone = (r.toEntry !== null && r.toEntry <= 0);
     const click = /^[A-Z0-9.\-]{1,12}$/.test(r.tk);
     const dayStr = (r.day != null) ? ((r.day >= 0 ? '+' : '') + r.day.toFixed(1) + '%') : '—';
-    const entryStr = r.toEntry === null ? 'no target' : (r.toEntry <= 0 ? '✓ in your zone' : '+' + r.toEntry.toFixed(0) + '% to buy');
-    const ring = inZone ? ';box-shadow:0 0 0 2px var(--green)' : '';
+    const _hmContradicted = thesisStatusCache[r.tk] && thesisStatusCache[r.tk].status === 'contradicted';
+    const entryStr = r.toEntry === null ? 'no target' : (r.toEntry <= 0 ? (_hmContradicted ? '⚠ thesis contradicted' : '✓ in your zone') : '+' + r.toEntry.toFixed(0) + '% to buy');
+    const ring = (inZone && !_hmContradicted) ? ';box-shadow:0 0 0 2px var(--green)' : '';
     const border = inZone ? 'var(--green)' : c.bd;
     return `<div class="hm-tile${click ? '' : ' flat'}" style="flex:1 1 96px;background:${c.bg};border-color:${border}${ring}"${click ? ` onclick="attentionDrill('${r.tk}')"` : ''}><div class="hm-tk">${escapeHtml(r.tk)}</div><div class="hm-ch" style="color:${c.fg};white-space:nowrap">${dayStr}</div><div class="hm-w" style="color:${inZone ? '#1fdf64' : 'var(--text3)'};font-weight:${inZone ? 700 : 400};white-space:nowrap">${entryStr}</div></div>`;
   }).join('');
@@ -4600,7 +4601,9 @@ function wlZoneBar(w){
   const fmt = v => cs + (v < 1 ? v.toFixed(4) : v.toFixed(2));
   const toEntry = (w.current - w.entry) / w.entry * 100;
   let col, lbl, bw;
+  const _zbContra = thesisStatusCache[w.ticker] && thesisStatusCache[w.ticker].status === 'contradicted';
   if (w.stance === 'avoid') { col = 'var(--text3)'; bw = 0; lbl = 'Avoided — below saved entry ' + fmt(w.entry); }
+  else if (_zbContra && toEntry <= 0) { col = 'var(--orange)'; bw = 100; lbl = '⚠ Below entry but thesis contradicted — reassess before buying'; }
   else if (toEntry <= 0) { col = 'var(--green)'; bw = 100; lbl = '● In your buy zone — at or below ' + fmt(w.entry); }
   else {
     bw = Math.max(8, Math.min(95, Math.round(100 - toEntry * 2)));
@@ -4744,7 +4747,8 @@ function renderWatchlist() {
       const tm = (tc && tc.status) ? thesisStatusMeta(tc.status) : null;
       const dot = tm ? `<span title="Thesis: ${tm.label}" style="color:${tm.c};font-size:14px">●</span>` : `<span title="Thesis not checked yet" style="color:var(--text3)">—</span>`;
       const priceStr = w.current > 0 ? cs + (w.current < 1 ? w.current.toFixed(4) : w.current.toFixed(2)) : '—';
-      const entryStr = w.stance === 'avoid' ? `<span style="color:var(--text3)">avoided</span>` : (toEntry === null ? '—' : (toEntry <= 0 ? `<span style="color:var(--green)">in zone</span>` : `<span style="color:var(--text2)">+${toEntry.toFixed(0)}%</span>`));
+      const _qvContra = tc && tc.status === 'contradicted';
+      const entryStr = w.stance === 'avoid' ? `<span style="color:var(--text3)">avoided</span>` : (toEntry === null ? '—' : (toEntry <= 0 ? (_qvContra ? `<span style="color:var(--orange)" title="Thesis contradicted">⚠ contradicted</span>` : `<span style="color:var(--green)">in zone</span>`) : `<span style="color:var(--text2)">+${toEntry.toFixed(0)}%</span>`));
       const isExp = wlQvExpanded.has(w.ticker);
       const safeTk = w.ticker.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 
@@ -5178,24 +5182,38 @@ function renderCatalysts() {
         <button onclick="syncCatalystsFromPortfolio()" style="background:var(--green);color:#04140b;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">+ Add ${missingN}</button>
       </div>`
     : '';
-  if (!catalysts.length) {
-    tl.innerHTML = syncBanner + '<div class="panel-sub" style="padding:16px 0">No catalysts yet. Click <strong>Add Catalyst +</strong> to add one, or use <strong>Rebuild from Portfolio</strong> to auto-generate from your positions.</div>';
+  const _catNow = Date.now();
+  const _catExpiryCutoff = _catNow - 7 * 86400000;
+  const _activeCatalysts = catalysts.filter((c, i) => {
+    if (!c.date || !/^\d{4}-\d{2}-\d{2}/.test(c.date)) return true;
+    return new Date(c.date).getTime() >= _catExpiryCutoff;
+  });
+  const _expiredCount = catalysts.length - _activeCatalysts.length;
+  const _expiredNote = _expiredCount > 0
+    ? `<div style="font:500 12px/1.4 var(--ui);color:var(--text3);margin-bottom:10px">${_expiredCount} past catalyst${_expiredCount>1?'s':''} hidden (>7 days ago). <a href="#" onclick="event.preventDefault();appSettings._showExpiredCatalysts=!appSettings._showExpiredCatalysts;renderCatalysts()" style="color:var(--blue)">Show all</a></div>`
+    : '';
+  const _catList = appSettings._showExpiredCatalysts ? catalysts : _activeCatalysts;
+  if (!_catList.length) {
+    tl.innerHTML = syncBanner + _expiredNote + '<div class="panel-sub" style="padding:16px 0">No upcoming catalysts. Click <strong>Add Catalyst +</strong> to add one, or use <strong>Rebuild from Portfolio</strong> to auto-generate from your positions.</div>';
     return;
   }
-  tl.innerHTML = syncBanner + catalysts.map((c, i) => `<div class="tev">
+  tl.innerHTML = syncBanner + _expiredNote + _catList.map((c, i) => {
+    const _origIdx = catalysts.indexOf(c);
+    const _isPast = c.date && new Date(c.date).getTime() < _catNow;
+    return `<div class="tev${_isPast ? ' cat-past' : ''}"${_isPast ? ' style="opacity:.55"' : ''}>
     <div class="tdot ${c.u||'mid'}"></div>
     <div class="tc">
       <div class="tc-hdr">
-        <div class="tc-title">${escapeHtml(c.title)}${c.ticker ? ` <span class="tk" style="font-size:11px;vertical-align:middle">${escapeHtml(c.ticker)}</span>` : ''}</div>
+        <div class="tc-title">${escapeHtml(c.title)}${c.ticker ? ` <span class="tk" style="font-size:11px;vertical-align:middle">${escapeHtml(c.ticker)}</span>` : ''}${_isPast ? ' <span style="font:600 9px/1 var(--ui);color:var(--orange);letter-spacing:.04em;vertical-align:middle">PAST</span>' : ''}</div>
         <div style="display:flex;align-items:center;gap:8px">
           <div class="tc-date"${c.date?` title="${escapeHtml(c.date)}"`:''}>${escapeHtml(c.date && /^\d{4}-\d{2}-\d{2}/.test(c.date) ? countdownText(c.date).text : 'Event-based')}</div>
-          <button onclick="deleteCatalyst(${i})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px" title="Remove">✕</button>
+          <button onclick="deleteCatalyst(${_origIdx})" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px" title="Remove">✕</button>
         </div>
       </div>
       <div class="tc-desc">${escapeHtml(c.desc||'')}</div>
       <div class="tc-impact ${c.impact||'medium'}">${c.impact==='high'?' HIGH IMPACT':' MEDIUM IMPACT'}</div>
     </div>
-  </div>`).join('');
+  </div>`}).join('');
 }
 
 function deleteCatalyst(i) {
@@ -5784,9 +5802,13 @@ async function lookupDecideTicker() {
             } else if (_p < _ideal[0]) {
               // FLIP: price is already cheaper than the ideal entry — say so, don't point them higher.
               const below = ((_ideal[0] - _p) / _ideal[0]) * 100;
-              gapLine = `<div style="margin-top:4px;color:var(--green)">already ${below.toFixed(0)}% below ideal entry &mdash; in value zone &check;</div>`;
+              gapLine = bz.trendWeak
+                ? `<div style="margin-top:4px;color:var(--orange)">already ${below.toFixed(0)}% below ideal entry &mdash; but trend is weak &mdash; falling into a zone ≠ holding at support</div>`
+                : `<div style="margin-top:4px;color:var(--green)">already ${below.toFixed(0)}% below ideal entry &mdash; in value zone &check;</div>`;
             } else {
-              gapLine = `<div style="margin-top:4px;color:var(--green)">already in ideal entry zone &check;</div>`;
+              gapLine = bz.trendWeak
+                ? `<div style="margin-top:4px;color:var(--orange)">in ideal entry zone &mdash; but trend is weak &mdash; watch for stabilization before adding</div>`
+                : `<div style="margin-top:4px;color:var(--green)">already in ideal entry zone &check;</div>`;
             }
           }
           entryEl.style.display = 'block';
@@ -7324,7 +7346,11 @@ function runSizingCalculator() {
 }
 function catalystRows() {
   const rows = [];
-  Object.entries(getCatalystSchedule()).forEach(([ticker, c]) => rows.push({ ticker, ...c }));
+  const _cutoff = Date.now() - 7 * 86400000;
+  Object.entries(getCatalystSchedule()).forEach(([ticker, c]) => {
+    if (c.date && /^\d{4}-\d{2}-\d{2}/.test(c.date) && new Date(c.date).getTime() < _cutoff) return;
+    rows.push({ ticker, ...c });
+  });
   return rows;
 }
 function countdownText(dateValue) {

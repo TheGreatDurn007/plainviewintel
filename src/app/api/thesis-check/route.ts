@@ -863,6 +863,20 @@ Return ONLY valid JSON, no markdown:
 
       // Slice B — PER-USER thesis evaluation history (private; powers thesis-evolution / "strength over
       // time"). Creates a snapshot when the thesis text is new/changed, appends this verdict linked to it.
+      // Reconcile: when the deterministic scorecard produced a verdict, map it back to a canonical
+      // status so every surface (heading chip, expanded card, NEXUS strength, Dashboard) agrees.
+      // The scorecard verdict is the truth — it's deterministic from the evidence profile.
+      const _reconciledStatus: string = (() => {
+        if (!scorecard?.verdict) return v.status;
+        const sv = String(scorecard.verdict).toLowerCase();
+        if (sv.startsWith("contradicted")) return "contradicted";
+        if (sv.startsWith("unsupported")) return "unsupported";
+        if (sv.startsWith("insufficient")) return "insufficient";
+        if (sv.startsWith("supported")) return "supported";
+        return "mixed"; // plausible, partly, real-facts-broken-logic, aggressive-price → all "mixed"
+      })();
+      if (_reconciledStatus !== v.status) v.status = _reconciledStatus as typeof v.status;
+
       const { snapshotId } = await recordThesisEvaluation(userId, {
         ticker,
         thesisText: thesis,

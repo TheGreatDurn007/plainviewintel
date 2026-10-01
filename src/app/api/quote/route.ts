@@ -490,6 +490,7 @@ export async function GET(request: Request) {
       patience: string;
       belowSupport?: boolean;
       confidence?: "high" | "medium" | "low";
+      trendWeak?: boolean;
       reason: string;
     };
     let buyZone: BuyZone | null = null;
@@ -608,7 +609,21 @@ export async function GET(request: Request) {
         const dvSrcs = confluenceAt(deepValue);
         const idealSrcs = confluenceAt(idealCenter);
         const maxConfluence = Math.max(dvSrcs.length, idealSrcs.length);
-        const confidence: "high" | "medium" | "low" = maxConfluence >= 3 ? "high" : maxConfluence >= 2 ? "medium" : "low";
+        const _rawConf: "high" | "medium" | "low" = maxConfluence >= 3 ? "high" : maxConfluence >= 2 ? "medium" : "low";
+        // Trend gate: strong confluence means the LEVEL is credible, but a weak trend means the
+        // setup isn't favourable yet — cap confidence at medium so the user doesn't read "High" as
+        // "go ahead and buy."
+        const _trendWeak = (() => {
+          if (!price || (ma50 == null && ma200 == null)) return false;
+          let s = 0;
+          if (ma50 != null && price > ma50) s++;
+          if (ma200 != null && price > ma200) s++;
+          if (ma50 != null && ma200 != null && ma50 > ma200) s++;
+          if (rsi != null) { if (rsi > 55) s++; else if (rsi < 45) s--; }
+          if (tech?.ret3mo != null) { if (tech.ret3mo > 5) s++; else if (tech.ret3mo < -5) s--; }
+          return s <= 0;
+        })();
+        const confidence: "high" | "medium" | "low" = _trendWeak && _rawConf === "high" ? "medium" : _rawConf;
         // Surface the strongest cluster in the reason so the user sees WHY a level is trustworthy.
         const bestCluster = dvSrcs.length >= idealSrcs.length ? dvSrcs : idealSrcs;
         const confluenceNote = bestCluster.length >= 2 ? `${bestCluster.join(" + ")} cluster here (${bestCluster.length}-method support)` : null;
@@ -644,9 +659,10 @@ export async function GET(request: Request) {
           patience,
           belowSupport,
           confidence,
+          trendWeak: _trendWeak,
           reason: belowSupport
             ? `Trading below all support (nearest ${usedAnchors[0] || "support"}) — deeply oversold or in structural decline; no reliable technical entry above. Treat as a thesis/catalyst call.`
-            : (usedAnchors.length ? `Anchored to ${usedAnchors.join(" + ")}${confluenceNote ? ` · ${confluenceNote}` : ""}` : "Technical support"),
+            : (usedAnchors.length ? `Anchored to ${usedAnchors.join(" + ")}${confluenceNote ? ` · ${confluenceNote}` : ""}${_trendWeak ? " · ⚠ Trend is weak — price may be falling into the zone, not stabilizing at it" : ""}` : "Technical support"),
         };
       }
     }
